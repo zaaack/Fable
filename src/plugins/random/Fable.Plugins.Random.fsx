@@ -1,9 +1,10 @@
 namespace Fable.Plugins
 
-#r "../../../build/fable/bin/Fable.Core.dll"
+#r "../../../build/fable-core/Fable.Core.dll"
 
 open Fable
 open Fable.AST
+open Fable.AST.Fable.Util
 
 type RandomPlugin() =
     interface IReplacePlugin with
@@ -12,25 +13,18 @@ type RandomPlugin() =
             | "System.Random" ->
                 match info.methodName with
                 | ".ctor" ->
-                    let o = Fable.ObjExpr ([], [], None, info.range)
-                    Fable.Wrapped (o, info.returnType) |> Some
+                    // makeJsObject is one of the helpers to emit Fable AST
+                    // in the Fable.AST.Fable.Util module
+                    makeJsObject info.range [] |> Some
                 | "Next" ->
-                    let intConst x =
-                        Fable.NumberConst (float x, Int32) |> Fable.Value
                     let min, max =
                         match info.args with
-                        | [] -> intConst 0, intConst System.Int32.MaxValue
-                        | [max] -> intConst 0, max
+                        | [] -> makeConst 0, makeConst System.Int32.MaxValue
+                        | [max] -> makeConst 0, max
                         | [min; max] -> min, max
                         | _ -> failwith "Unexpected arg count for Random.Next"
-                    let emitExpr =
-                        Fable.Emit("Math.floor(Math.random() * ($1 - $0)) + $0")
-                        |> Fable.Value
-                    Fable.Apply(emitExpr, [min; max], Fable.ApplyMeth, info.returnType, info.range)
+                    "Math.floor(Math.random() * ($1 - $0)) + $0"
+                    |> makeEmit info.range info.returnType [min; max]
                     |> Some
-                    // Alternative to the previous five lines
-                    // "Math.floor(Math.random() * ($1 - $0)) + $0"
-                    // |> Fable.Replacements.Util.emit info <| [min; max]
-                    // |> Some
                 | _ -> None
             | _ -> None

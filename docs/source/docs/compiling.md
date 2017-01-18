@@ -1,29 +1,72 @@
- - tagline: Using Fable as part of your node applications
+ - tagline: Fable takes F# to a whole new platform
 
 **Attention**: This document corresponds to Fable 0.6.x and needs to be updated to the latest version. Please check the [migration guide](../blog/Introducing-0-7.html).
 
 # Compiling to JavaScript
 
+## Requirements
 
-You can install the `fable-compiler` package from [npm](https://www.npmjs.com/package/fable-compiler)
-either locally or globally. Here we'll assume it's been installed globally so the `fable`
-command is available from any directory.
+The following software needs to be installed in your machine:
 
-The simplest way to compile a F# project (`.fsproj`) or script (`.fsx`) is
-to pass its path as an argument to `fable`:
+- [Node.js](https://nodejs.org/): Fable is tested against 4.4, but latest stable version is recommended.
+- .NET Framework/Mono: v4.5 or higher.
+
+> In Windows, assembly resolution may not work correctly if [.NET Framework 4.5 SDK](https://developer.microsoft.com/en-us/windows/downloads/windows-8-sdk) is not installed.
+
+> There's also a Fable version that runs on NetCore: [fable-compiler-netcore](https://www.npmjs.com/package/fable-compiler-netcore)
+
+## Hello World Setup
+
+Fable compiler and its core library (fable-core) are distributed through [npm](https://www.npmjs.com/),
+Node's package manager, so you usually will have to set it up for most Fable projects. Create an empty
+directory for your sample and within it, type:
 
 ```shell
-npm install -g fable-compiler
-
-fable path/to/your/project.fsproj
+npm init --yes
 ```
 
-> Note: If you're having problems to compile a project, make sure
-you are using the latest version of the compiler. If you installed it globally,
-you can update it with `npm install -g fable-compiler`. You can see the version
-installed with `fable --help` and the latest version available in npm with `npm info fable-compiler version`.
+This will create a `package.json` file in the directory, which is used by npm to register your project
+dependencies.
 
-> If you have problems on Windows [see this](https://github.com/fable-compiler/Fable#requirements).
+> It's also possible to use other alternative package managers that work with npm repository, like [yarn](https://yarnpkg.com/).
+
+Now install `fable-compiler` and `fable-core` packages with the following command:
+
+```shell
+npm install --save fable-compiler fable-core
+```
+
+npm will download the packages and put them in a `node_modules` folder within the current directory.
+The `--save` option tells npm to also register the dependencies in the `package.json` file (that way,
+the next time you only need to type `npm install`). Please note that npm can also install packages and
+commands globally, but it's recommended that you install `fable-compiler` always locally to make updates
+easier and also to make it possible to use different versions of the compiler in different projects if
+necessary.
+
+We can already start writing some F# code. Honouring the _Hello World_ tradition, create a `hello_world.fsx`
+file and write the following in it:
+
+```fsharp
+printfn "Hello World!"
+```
+
+> Fable can compile to JS most of FSharp.Core and a subset of .NET Base Class Library.
+Check [Compatibility](compatibility.html) for more details.
+
+Now we will compile the F# code to node and run it as a node app. Type the following:
+
+```shell
+node node_modules/fable-compiler hello_world.fsx --module commonjs
+```
+
+Fable compiler itself is a node app, so we use node to bootstrap it. After that we pass the compiler
+arguments: the project file (in this case, a `.fsx` script) and the JS module target. When the compiler
+finishes a new `hello_world.js` file should appear in the directory. You can also run this script using
+node, printing `Hello World!` to your terminal.
+
+```shell
+node hello_world.js
+```
 
 ## CLI options
 
@@ -32,29 +75,35 @@ Besides the default argument (`--projFile`), the following options are available
 Option                  | Short     | Description
 ------------------------|-----------|----------------------------------------------------------------------
 `--outDir`              | `-o`      | Where to put compiled JS files. Defaults to project directory.
-`--module`              | `-m`      | Specify module code generation: `commonjs` (default), `amd`, `umd` or `es2015`.
+`--module`              | `-m`      | Specify module code generation: `commonjs`, `amd`, `umd` or `es2015` (default).
 `--sourceMaps`          | `-s`      | Generate source maps: `false` (default), `true` or `inline`.
 `--watch`               | `-w`      | Recompile project much faster on file modifications.
 `--ecma`                |           | Specify ECMAScript target version: `es5` (default) or `es2015`.
+`--verbose`             |           | Print more information about the compilation process.
 `--symbols`             |           | F# symbols for conditional compilation, like `DEBUG`.
+`--dll`                 |           | Generate a `.dll` assembly when creating libraries.
+`--rollup`              |           | Bundle files and dependencies with Rollup.
+`--includeJs`           |           | Compile with Babel and copy to `outDir` relative imports (starting with '.').
 `--plugins`             |           | Paths to Fable plugins.
 `--babelPlugins`        |           | Additional Babel plugins (without `babel-plugin-` prefix). Must be installed in the current directory.
+`--refs`                |           | Alternative location for compiled JS files of referenced libraries.
+`--coreLib`             |           | Shortcut for `--refs Fable.Core={VALUE}`.
 `--loose`               |           | Enable “loose” transformations for babel-preset-es2015 plugins (true by default).
 `--babelrc`             |           | Use a `.babelrc` file for Babel configuration (invalidates other Babel related options).
-`--refs`                |           | Specify dll or project references in `Reference=js/import/path` format (see below).
 `--clamp`               |           | Compile unsigned byte arrays as Uint8ClampedArray.
-`--copyExt`             |           | Copy external files into `fable_external` folder (true by default).
-`--coreLib`             |           | In some cases, you may need to pass a different route to the core library, like `--coreLib fable-core/es2015`.
-`--verbose`             |           | Print more information about the compilation process.
+`--noTypedArrays`       |           | Don't compile numeric arrays as JS typed arrays.
 `--target`              | `-t`      | Use options from a specific target in `fableconfig.json`.
 `--debug`               | `-d`      | Shortcut for `--target debug`.
 `--production`          | `-p`      | Shortcut for `--target production`.
-`--declaration`         |           | [Experimental] Generates corresponding ‘.d.ts’ file.
-`--extra`               |           | Custom options for plugins in `Key=Value` format.
+`--declaration`         |           | [EXPERIMENTAL] Generates corresponding ‘.d.ts’ file.
+`--extra`               |           | Custom options for plugins in `{KEY}={VALUE}` format.
 `--help`                | `-h`      | Display usage guide.
 
-> Besides `projFile`, all paths (`outDir`, `plugins`...) will be considered relative to
-the project file directory if they're not absolute, but see `fableconfig.json` below.
+## Watch mode
+
+TODO
+
+## F# projects (.fsproj)
 
 ## Project references
 
@@ -194,7 +243,7 @@ requirejs.config({
     baseUrl: 'out',
     paths: {
         // Explicit path to core lib (relative to baseUrl, omit .js)
-        'fable-core': '../node_modules/fable-core/fable-core.min'
+        'fable-core': '../node_modules/fable-core'
     }
 });
 // Load the entry file of the app (use array, omit .js)
@@ -283,6 +332,9 @@ but it also means using a `#load` directive in a script file just for the side e
 (for example, to run some code on the other file) won't work. Functions on the other
 file must be called explicitly.
 
+## Bundling
+
+TODO: See http://fable.io/blog/Introducing-0-7.html#ES2015-Modules-and-Bundling
 
 ## Debugging
 
@@ -292,30 +344,12 @@ This is automatic for browser apps. For node, you'll need a tool like [node-insp
 or a capable IDE. In the case of Visual Studio Code, you can find instructions [here](https://code.visualstudio.com/docs/editor/debugging)
 (see Node Debugging > JavaScript Source Maps).
 
+## Writing a library
 
-## Testing
+Writing a library for Fable apps involves a couple of things more than normal projects.
+You can fin a sample library project with a tutorial [here](https://github.com/fable-compiler/fable-helpers-sample).
 
-You can use any JS testing library to write tests for your project, but to make it
-easier to share code across platforms, a plugin is available to make
-[NUnit](http://www.nunit.org) tests compatible with [Mocha](https://mochajs.org).
-Check [the tutorial](http://fable-compiler.github.io/samples/nunit/index.html) for more info.
+## Plugins
 
-## Samples
-
-There are several samples available in the [repository](https://github.com/fable-compiler/Fable/blob/master/samples) and you can also download them from [here](https://ci.appveyor.com/api/projects/alfonsogarciacaro/fable/artifacts/samples.zip).
-Every sample includes a `fableconfig.json` file so they can be compiled just by running
-the `fable` command in the sample directory (or from a different directory by passing the route).
-Just be sure to install the npm dependencies the first time.
-
-```shell
-npm install
-fable
-```
-
-> Note: `fableconfig.json` in most of the samples runs `npm install` before compilation
-so usually this step is automatic.
-
-
-Now it's your turn to build a great app with Fable and show it to the world!
-Check [Compatibility](compatibility.html) and [Interacting with JavaScript](interacting.html)
-to learn what you need to take into account when diving into JS.
+Besides the compiler options, it's possible to add Fable and [Babel](https://github.com/thejameskyle/babel-handbook/blob/master/translations/en/README.md) plugins
+to customize the build. Check [Plugins](plugins.html) to learn how to create your own Fable plugins.

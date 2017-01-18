@@ -1,12 +1,12 @@
  - tagline: Extending Fable via plugins
 
-# Fable architecture
+# Fable plugins
 
 Is it very easy to add features to Fable using plugins. The best example is the plugin
 to transform [NUnit tests into Mocha](https://github.com/fable-compiler/Fable/blob/master/src/plugins/nunit/Fable.Plugins.NUnit.fsx). In order to understand the plugin
 system we'll review briefly how Fable works.
 
-## Overview of Fable's Architecture
+## Overview of Fable's architecture
 
 Thanks to the [F# compiler](http://fsharp.github.io/FSharp.Compiler.Service/)
 and [Babel](http://babeljs.io), the work of Fable is very simple: transform
@@ -15,17 +15,14 @@ This way, it's not necessary to deal directly with F# or JavaScript code.
 Moreover, several tasks can be delegated to Babel, like compiling from ES2015 to ES5
 or using different module systems according to the target environment.
 
-> Note: Babel itself is composed of plugins and the [do-expressions](http://wiki.ecmascript.org/doku.php?id=strawman:do_expressions)
-plugin in particular greatly simplifies the compilation to JS from an expression-based language like F#.
-
 In between these two ASTs, Fable sneaks its own one. The reason for that
 is to have something more manageable than the AST provided by the F# compiler
-for internal transformation and optimizations. Plugins will mostly work against
-this intermediate AST.
+for internal transformation and optimizations. Plugins will work against
+this intermediate Fable AST.
 
 During the AST transformation process, several hooks are available for plugins.
 The most important one is the call replacement, that is, when Fable tries to
-replace a call to an external source, like the F# core library or .NET BCL.
+replace a call to a type or module member (method, constructor, property...).
 Below, we are going to learn how to create a plugin to replace some of these calls.
 Another useful plugin lets you transform Fable AST after it has been obtained
 from F# source code. This is briefly outlined in the second demo in this article.
@@ -45,7 +42,7 @@ you place the plugin):
 ```fsharp
 namespace Fable.Plugins
 
-#r "../../../build/fable/bin/Fable.Core.dll"
+#r "../../../build/fable-core/Fable.Core.dll"
 
 open Fable
 open Fable.AST
@@ -73,7 +70,7 @@ type RandomPlugin() =
 
 Right now this plugin won't do anything as it always return `None` but we
 can have a look at the signature of the method we need to implement to
-understand what's going on. Every time Fable encounters an external call,
+understand what's going on. Every time Fable encounters a call in the F# AST,
 it will call this method and pass a couple of arguments: the first one
 contains the compiler options and we don't need to worry about it for now.
 The second one is more interesting and contains a lot of information about
@@ -81,24 +78,30 @@ the call we need to replace. `ApplyInfo` has the following definition:
 
 ```fsharp
 type ApplyInfo = {
-        methodName: string
-        ownerFullName: string
-        methodKind: MemberKind
-        callee: Expr option
-        args: Expr list
-        returnType: Type
-        range: SourceLocation option
-        decorators: Decorator list
-        calleeTypeArgs: Type list
-        methodTypeArgs: Type list
-        lambdaArgArity: int
-    }
+    ownerType: Fable.Type
+    /// Sometimes Fable.Type may differ from original F# name
+    /// (e.g. System.Object -> Fable.Any). This keeps the original name.
+    ownerFullName: string
+    methodName: string
+    methodKind: MemberKind
+    callee: Fable.Expr option
+    args: Fable.Expr list
+    returnType: Fable.Type
+    range: SourceLocation option
+    fileName: string
+    decorators: Decorator list
+    calleeTypeArgs: Fable.Type list
+    methodTypeArgs: Fable.Type list
+    /// If the method accepts a lambda as first argument,
+    /// indicates its arity
+    lambdaArgArity: int
+}
 ```
 
-We're going to focus on the first four fields: `ownerFullName` and `methodName`
+We're going to focus on the first fields: `ownerFullName` and `methodName`
 make it possible to identify the method. The next two fields expose the instance object
-(which maybe `None` if the method is static) and the arguments, already transformed
-into Fable expressions.
+(which maybe `None` if the method is static or a constructor) and the arguments,
+already transformed into Fable expressions.
 
 With this information, let's identify calls to `System.Random`. This time we'll
 only try to replace two methods: the constructor and `Next`.
@@ -114,8 +117,7 @@ member x.TryReplace com (info: Fable.ApplyInfo) =
     | _ -> None
 ```
 
-> As you can see, we identify constructors with ".ctor" and we must use lower-case
-for the first letter.
+> As you can see, we identify constructors with ".ctor".
 
 Before implementing the constructor, let's find out how we can create random
 numbers in JavaScript. We'll check [Mozilla Developer Network](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/random)
@@ -130,75 +132,43 @@ Math.floor(Math.random() * (max - min)) + min;
 To be compatible with .NET code, even if we don't actually need a constructor,
 we have to fake one. We'll do that by just returning an empty object.
 
+First we will create the empty JS object using the `makeJsObject` helper.
+Then we will wrap the expression with `Some` to indicate we've taken care
+of the call replacement.
+
+> Though not strictly necessary in this case (we could pass `None` instead),
+we add the location information (`info.range`) to improve the generation of
+source maps that allow debugging the F# source in the browser.
+
 ```fsharp
 | ".ctor" ->
-    let o = Fable.ObjExpr ([], [], None, info.range)
-    Fable.Wrapped (o, info.returnType) |> Some
+    // makeJsObject is one of the helpers to emit Fable AST
+    // in the Fable.AST.Fable.Util module
+    makeJsObject info.range []
 ```
 
-First we create an empty object expression using one of the union cases of
-`Fable.Expr`. Though not strictly necessary in this case, it's important to get
-used to add the `range` information to the syntax elements we create so source maps
-can be generated correctly allowing us to debug the F# source.
-
-Then we wrap the object just to attach the type (this is important because
-in some optimizations Fable may decide to remove empty untyped objects). And finally
-we return `Some` to indicate we've taken care of the call replacement.
-
-Now we need to deal with "next". According to .NET documentation, `Random.Next`
+Now we need to deal with "Next". According to .NET documentation, `Random.Next`
 has three overloads so we need to check the arguments and use default values
 for the lower and upper limits of the range if they're not provided.
 
+After that we will emit some JS code inline (using placeholders like `$0`, `$1`
+for the arguments). We can call the `makeEmit` helper that also accepts the `range`
+and the `returnType` as arguments.
+
 ```fsharp
 | "Next" ->
-    let intConst x =
-        Fable.NumberConst (U2.Case1 x, Int32) |> Fable.Value
     let min, max =
         match info.args with
-        | [] -> intConst 0, intConst System.Int32.MaxValue
-        | [max] -> intConst 0, max
+        | [] -> makeConst 0, makeConst System.Int32.MaxValue
+        | [max] -> makeConst 0, max
         | [min; max] -> min, max
         | _ -> failwith "Unexpected arg count for Random.Next"
+    "Math.floor(Math.random() * ($1 - $0)) + $0"
+    |> makeEmit info.range info.returnType [min; max]
+    |> Some
 ```
 
-> The `Fable.NumberConst` method builds a `Fable.Expr` from a numeric literal.
-
-We could translate the JS expression above using `Fable.Expr` elements but for
-the sake of simplicity let's just use an `Emit` expression like we do with the
-`EmitAttribute` and let Babel do the parsing work for us. This would be a way to do it:
-
-```fsharp
-let emitExpr =
-    Fable.Emit("Math.floor(Math.random() * ($1 - $0)) + $0")
-    |> Fable.Value
-Fable.Apply(emitExpr, [min; max], Fable.ApplyMeth, info.returnType, info.range)
-|> Some
-```
-
-First we create the emit expression. Note the expression will be emitted inline
-and we use `$0` and `$1` as placeholders for the arguments. Also note we don't
-need to worry about wrapping the expression in parentheses, Bable will do it for
-us if necessary.
-
-Then we apply the expression to the arguments indicating the `range` and the `returnType`.
-
-It would be also possible to save a few keystrokes using a helper method from
-`Fable.Replacements` module.
-
-```fsharp
-"Math.floor(Math.random() * ($1 - $0)) + $0"
-|> Fable.Replacements.Util.emit info <| [min; max]
-|> Some
-```
-
-What remains is just putting everything together and compiling the plugin
-(use `fsc` or `fsharpc` according to your platform):
-
-```
-fsc src/plugins/random/Fable.Plugins.Random.fsx --target:library --out:src/plugins/random/Fable.Plugins.Random.dll
-```
-
-To test it, create a `Test.fsx` file in a `temp` folder and type the following:
+To test the plugin, create a `Test.fsx` file in a `temp` folder and type the following:
 
 ```fsharp
 let r = System.Random()
@@ -208,45 +178,34 @@ printfn "%i" <| r.Next(10)
 printfn "%i" <| r.Next(40, 50)
 ```
 
-In the same `temp` folder, create a `fableconfig.json` file with these options:
-
-```fsharp
-{
-    "module": "commonjs",
-    "plugins": ["src/plugins/random/Fable.Plugins.Random.dll"]
-}
-```
-
-Now, from the project root folder, compile and run the script with:
+Now, from Fable's repo root folder (after building the project), compile
+and run the script with:
 
 ```
-fable temp/Test.fsx
+node build/fable temp/Test.fsx -m commonjs --coreLib ./build/fable-core/umd --plugins src/plugins/random/Fable.Plugins.Random.fsx
 node temp/Test
 ```
-
-If you need more help to create replacements you can have a look at the [Fable.Replacements
-module](https://github.com/fable-compiler/Fable/blob/master/src/fable-fsharp/Replacements/Replacements.fs).
 
 ## Creating rewriter plugins
 
 Rewriter plugins let you perform transformations on the Fable AST. This can be useful if you
 want to modify how Fable handles certain constructs, or if you want to perform something along
 the lines of [aspect-oriented programming](https://en.wikipedia.org/wiki/Aspect-oriented_programming)
-and, for example, insert custom logging or exception handling into every function declaration 
+and, for example, insert custom logging or exception handling into every function declaration
 in your project.
 
 To implement rewriter plugin, you need to implement the `IRewritePlugin` interface. For example,
 let's say we want to insert a `console.log` call at the beginning of every top-level function
 and use it to log the names of called functions. To do this, we can implement a rewrite plugin
-that will go through all declarations and inject the call at the beginning of each function 
+that will go through all declarations and inject the call at the beginning of each function
 declaration. To inject the call, we write the following helper:
 
 ```
-let injectLog name expr = 
-  let logExpr = 
+let injectLog name expr =
+  let logExpr =
     Apply
-      ( Value(Emit("x=>console.log(x)")), 
-        [Value(StringConst name)], 
+      ( Value(Emit("x=>console.log(x)")),
+        [Value(StringConst name)],
         ApplyMeth, Unit, None )
   Sequential([ logExpr; expr ], None)
 ```
@@ -259,8 +218,8 @@ inline function with the function name as argument.
 Next, we need to write a function to transform all declarations in a file:
 
 ```
-let transformFile (file:File) = 
-  let newDecls = 
+let transformFile (file:File) =
+  let newDecls =
     file.Declarations
     |> List.map (function
       | MemberDeclaration(membr, name, args, body, loc) ->
@@ -271,10 +230,10 @@ let transformFile (file:File) =
   File(file.FileName, file.Root, newDecls, file.UsedVarNames)
 ```
 
-A file has a list of declarations in `file.Declarations` and so we simply iterate over all the 
+A file has a list of declarations in `file.Declarations` and so we simply iterate over all the
 declarations. If the declaration is `MemberDeclaration` (meaning top-level function), we use our
 `injectLog` function to add logging to its body. At the end, we create new `File` object using
-the original file information and new declarations. Finally, we need to implement 
+the original file information and new declarations. Finally, we need to implement
 `IRewritePlugin`:
 
 ```
@@ -283,8 +242,8 @@ type LoggingRewrite() =
     member x.Rewrite(files) = files |> Seq.map transformFile
 ```
 
-Here, we transform all files in the project using the `transformFile` function. 
-The rest is the same as in the previous example - you'll need to compile the plugin 
+Here, we transform all files in the project using the `transformFile` function.
+The rest is the same as in the previous example - you'll need to compile the plugin
 and specify it in `fableconfig.json` and that's all you need to do!
 
 
