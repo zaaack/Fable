@@ -101,49 +101,54 @@ Option                  | Short     | Description
 
 ## Watch mode
 
-TODO
+Fable compilations has a warmup time of around five seconds, and big projects can take longer to compile.
+This can break the workflow of web developers, who have become used to see their code running on the browser
+right after editing a file.
+
+The `--watch` mode is available to achieve a similar experience with Fable. Using this mode the
+first compilation will still take some time but after that Fable will only compile the edited files
+resulting in much faster build times. By activating the `--watch` flag, after the first compilation
+Fable will watch the project directory for changes in the source files.
+
+`--watch` can also accept a string (or a string array) to indicate the directories that must be watched.
+This is useful when the `.fs` source files are not in the same directory as the `.fsproj` file.
 
 ## F# projects (.fsproj)
 
+Fable can compile `.fsx` scripts. But when your project becomes a bit complicated, it's recommended to
+use a project file (`.fsproj`). F# project files are in XML format, follow MSBuild specifications and are
+not very human readable (though this will improve with MSBuild 15) so it's recommended to use an IDE like Visual
+Studio or [Ionide](http://ionide.io/) to handle them.
+
+> Remember that files listed in `.fsproj` must be in sorted compilation order.
+
+To avoid the MSBuild dependency, at the moment Fable uses [Forge](http://forge.run/) internally to parse
+`.fsproj` files. However, this kind of parsing is not as powerful as using MSBuild itself so it's a good
+idea to keep your project files simple. Only source files and `.dll` references are read from the `.fsproj`
+file (use the `--symbols` Fable compiler argument if you want to define compilation constants like `DEBUG`),
+and conditional MSBuild items are not supported.
+
+> By default, Fable always define the `FABLE_COMPILER` compilation constant.
+
 ## Project references
 
-You can use `--refs` argument to link referenced dll or projects with the JS import path that must be used,
-using the following format: `[Reference name without extension]=[JS import path]`.
-
-### Example: project reference
-
-```shell
-fable src/lib/MyLib.fsproj --outDir out/lib
-fable src/main/MyProject.fsproj --refs MyLib=../lib
-```
-
-### Example: dll refence
-
-We assume we have an npm package with the following structure:
-
-```text
-my-lib/
-    js/MyLib.js
-    bin/MyLib.dll
-```
-
-If we are referencing `node_modules/bin/MyLib.dll` in our project,
-we can tell Fable to replace the refence with the JS code using the
-argument below (note if we are using node or a bundler like Webpack
-we can omit `./node_modules/` in the JS import path).
+Above it's mentioned that Fable can read `.dll` references from `.fsproj` files. However, project references
+cannot be read directly. Instead you must pass all the projects you want to compile at once to the `--projFile`
+argument. 
 
 ```shell
-fable src/main/MyProject.fsproj --refs MyLib=my-lib/js
+node node_modules/fable-compiler src/MyLib/MyLib.fsproj src/MyApp/MyApp.fsproj
 ```
 
-> See [fable-helpers-sample](https://www.npmjs.com/package/fable-helpers-sample) to know how to publish a Fable package.
+Fable will actually merge the files in all projects for the build, so it's important that project
+files are also listed in **compilation order**.
 
-TODO: Explain how to use the EntryModule attribute
+> In the `.fsproj` file you still need to use project references so IDEs like Visual Studio or Ionide work properly.
 
 ## fableconfig.json
 
-Rather than passing all the options to the CLI, it may be more convenient to put them
-in JSON format in a file named `fableconfig.json` and let the compiler read them for you.
+Rather than passing all the options to the CLI, it may be more convenient to put them in JSON format
+([JSON5](http://json5.org/) is also supported) in a file named `fableconfig.json` and let the compiler read them for you.
 You can combine options from the CLI and `fableconfig.json`, when this happens the former will have preference.
 
 To use `fableconfig.json` just pass the directory where the JSON file resides to Fable.
@@ -151,20 +156,6 @@ If you omit the path, the compiler will assume it's in the current directory.
 
 ```shell
 fable my/path/
-```
-
-> Note that in this case, all path configurations (`projFile`, `outDir`, `plugins`...) will be
-relative to the directory where `fableconfig.json` resides.
-
-Project references can be passed using a plain object:
-
-```shell
-{
-  "refs": {
-    "MyLib": "../lib",
-    "MyNs.AnotherProject": "../another"
-  }
-}
 ```
 
 There are some options exclusive to `fableconfig.json`.
@@ -211,17 +202,6 @@ as in the sample above.
 }
 ```
 
-When using a node `package.json` file, it's also possible to specify the minimum
-version of Fable required to compile the project.
-
-```json
-{
-    "engines": {
-        "fable": "0.1.3"
-    }
-}
-```
-
 
 ## fable-core
 
@@ -232,7 +212,7 @@ When targeting node or using a module bundler you only need to add the dependenc
 npm install --save fable-core
 ```
 
-If targeting the browser and using AMD instead, you can load Fable's core lib with
+If targeting the browser and using AMD instead (`--module amd`), you can load Fable's core lib with
 [require.js](http://requirejs.org) as follows:
 
 ```html
@@ -243,7 +223,7 @@ requirejs.config({
     baseUrl: 'out',
     paths: {
         // Explicit path to core lib (relative to baseUrl, omit .js)
-        'fable-core': '../node_modules/fable-core'
+        'fable-core/umd': '../node_modules/fable-core/umd'
     }
 });
 // Load the entry file of the app (use array, omit .js)
@@ -251,90 +231,98 @@ requirejs(["app"]);
 </script>
 ```
 
+> Note that when targeting a UMD-compatible module (like commonjs or amd), Fable will automatically
+pick the `fable-core/umd` distribution.
 
 ## Polyfill
 
-When not using `--ecma es2015` or `--module es2015` (see below), after going through Babel pipeline
-the code won't include any syntax foreign to ES5. However several ES2015 classes (like `Symbol`)
-are used so it's advisable to include a polyfill like [core-js](https://github.com/zloirock/core-js)
-to make sure the code works fine in any browser.
+By default Fable will compile to ES5 syntax (you can change that with `--ecma es2015` argument),
+but it still uses some classes that belong to ES2015 specification (like `Symbol`). So if you want to
+run the code in old browsers, you need to poliyfill them. There are two ways to do this:
 
-You can include the polyfill in a `script` tag in your HTML file before loading
-the generated JS code like:
+- Load [core-js](https://github.com/zloirock/core-js) with a script tag before loading Fable's code:
 
 ```html
-<script src="node_modules/core-js/client/core.min.js"></script>
+<script src="node_modules/core-js/client/shim.min.js"></script>
 ```
 
-Or you can import it directly in your F# code if you're using a bundler like
-Webpack or Browserify right before the entry point of your app.
+- Use [babel-runtime](https://babeljs.io/docs/plugins/transform-runtime/) plugin. This will add
+  only the polyfills your code needs automatically.
 
-```fsharp
-open Fable.Core
-
-JsInterop.importAll "core-js"
+```shell
+npm install --save babel-runtime 
+npm install --save-dev babel-plugin-transform-runtime
 ```
 
-> The polyfill is not necessary when targeting node 4.4 or above.
-
-> Babel includes [its own polyfill](http://babeljs.io/docs/usage/polyfill/)
-with a lazy-sequence generator, but this is not needed as one is already included
-in [fable-core.ts](https://github.com/fable-compiler/Fable/blob/master/src/fable/Fable.Core/npm/fable-core.ts).
-
+```json
+// In fableconfig.json
+"babelPlugins": ["transform-runtime"],
+```
 
 ## Modules
 
-The compiler will keep the file structure of the F# project, wrapping each file in a [ES2015 module](https://github.com/lukehoban/es6features#modules).
+The compiler will keep the file structure of the F# project, converting each file to an [ES2015 module](https://github.com/lukehoban/es6features#modules).
+When the `--module` argument is passed to the compiler, these modules will be transformed in the JS code to
+[umd](https://github.com/umdjs/umd), [amd](http://requirejs.org/docs/whyamd.html), [commonjs](https://nodejs.org/docs/latest/api/modules.html).
+If `--module` is omitted, ES2015 `import/export` modules will be kept in the final code.
 
-According to the `--module` argument (see above), these modules can be transformed again by Babel to
-[umd](https://github.com/umdjs/umd) (the default), [amd](http://requirejs.org/docs/whyamd.html), [commonjs](https://nodejs.org/docs/latest/api/modules.html), or not at all.
+When an F# file makes a reference to another, the compiler will automatically create an [import statement](https://developer.mozilla.org/en/docs/web/javascript/reference/statements/import)
+in the generated Javascript code. You can also generate imports by yourself, see [Interacting with JS](interacting.html).
 
-In the browser, when not using a bundler like Webpack or Browserify, you'll need a module loader like [require.js](http://requirejs.org) to start up the app.
-
-When a F# file makes a reference to another, the compiler will create an [import statement](https://developer.mozilla.org/en/docs/web/javascript/reference/statements/import)
-in the generated Javascript code. You can also generate imports by using the [Import attribute](interacting.html).
-
-As JS must import external modules with an alias, there's no risk of namespace
-collision so, for convenience, the compiler will use the minimum route to access
-external objects. Meaning that if you have a F# file with one root module:
-
-```fsharp
-module MyNs1.MyNs2.MyModule
-
-let myProperty = "Hello"
-```
-
-To access `myProperty` the generated code will import the file with an alias, say `$import0`,
-and directly access the property from it: `$import0.myProperty`. The route has been eluded
-as it's not necessary to prevent name conflicts. In the same way, if you have a file
-with two modules:
-
-```fsharp
-namespace MyNs1.MyNs2
-
-module MyModule1 =
-    let myProperty = "Hello"
-
-module MyModule2 =
-    let myProperty = "Bye"
-```
-
-This time the compiler will omit the namespace but keep the F# module names,
-as they're necessary to prevent name conflicts in the same file:
-
-```js
-$import0.MyModule1.myProperty !== $import0.MyModule2.myProperty
-```
-
-> Note: When referencing a module or type from another file, Fable will automatically create
-the imports for the specific members you need. This allows [tree shaking](http://www.2ality.com/2015/12/webpack-tree-shaking.html)
-but it also means using a `#load` directive in a script file just for the side effects
-(for example, to run some code on the other file) won't work. Functions on the other
-file must be called explicitly.
+If the F# file just contains a single root module (the namespace doesn't matter) Fable will expose its public
+members with the ES2015 [export](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/export) keyword.
+This has many benefits for [tree shaking](http://fable.io/blog/Tree-shaking.html) (see below) so for Fable projects
+it's recommended to have just one module per file and avoid nested modules when possible.
 
 ## Bundling
 
-TODO: See http://fable.io/blog/Introducing-0-7.html#ES2015-Modules-and-Bundling
+Very often JS apps are bundled, that is, the main script and all its dependencies
+are brought together into a single file to make deployment much easier. Bundlers have
+also other benefits, as they can optimize code, remove unused parts and minify the result.
+
+Fable comes with [Rollup](http://rollupjs.org/) embedded, a bundler for ES2015 modules
+(the default since Fable 0.7.x) with [tree shaking](http://fable.io/blog/Tree-shaking.html) capabilities.
+To activate you only need to pass the `--rollup` flag.
+
+In `fableconfig.json` it's also possible to pass a configuration object to the `rollup` option.
+Check [Rollup JS API](https://github.com/rollup/rollup/wiki/JavaScript-API) for the available options.
+However, please note that plugins use the same format as Babel plugins ([reference](https://babeljs.io/docs/plugins/#plugin-preset-options)):
+
+```json
+"rollup": {
+  "plugins": [
+    ["commonjs", {
+      "namedExports": {
+        "virtual-dom": [ "h", "create", "diff", "patch" ]
+      }
+    }]
+  ]
+}
+```
+
+The default Rollup configuration in Fable is:
+
+```js
+{
+    // entry: <Last F# source file>
+    dest: fableOptions.outDir + "/bundle.js",
+    format: fableOptions.module || "iife",
+    sourceMap: fableOptions.sourceMaps,
+    moduleName: normalizeProjectName(fableOptions),
+    plugins: {
+        require('rollup-plugin-node-resolve')({ ignoreGlobal: true }),
+        require('rollup-plugin-commonjs')({ jsnext: true, main: true, browser: true })
+    }
+}
+```
+
+If you prefer to use other bundlers like [Webpack](https://webpack.js.org/) you just need
+to call it after Fable compilation. For example, in the `postbuild` script (or `postbuild-once`
+if using watch mode).
+
+> **Caveat**: Though Rollup can understand commonjs modules, it's not as powerful as Webpack
+and can have problems bundling some packages (like React). In this case you may want to
+load the JS library globally with a `<script>` tag ([example](https://github.com/fable-compiler/Fable/blob/bf0192366c22929c6b589b5b39bec52512d6d7df/samples/browser/redux-todomvc/fableconfig.json)).
 
 ## Debugging
 
