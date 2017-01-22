@@ -1,7 +1,5 @@
  - tagline: Fable takes F# to a whole new platform
 
-**Attention**: This document corresponds to Fable 0.6.x and needs to be updated to the latest version. Please check the [migration guide](../blog/Introducing-0-7.html).
-
 # Compiling to JavaScript
 
 ## Requirements
@@ -134,7 +132,7 @@ and conditional MSBuild items are not supported.
 
 Above it's mentioned that Fable can read `.dll` references from `.fsproj` files. However, project references
 cannot be read directly. Instead you must pass all the projects you want to compile at once to the `--projFile`
-argument. 
+argument.
 
 ```shell
 node node_modules/fable-compiler src/MyLib/MyLib.fsproj src/MyApp/MyApp.fsproj
@@ -250,7 +248,7 @@ run the code in old browsers, you need to poliyfill them. There are two ways to 
   only the polyfills your code needs automatically.
 
 ```shell
-npm install --save babel-runtime 
+npm install --save babel-runtime
 npm install --save-dev babel-plugin-transform-runtime
 ```
 

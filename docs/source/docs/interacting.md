@@ -1,17 +1,285 @@
 - tagline: Fable features for easy interoperability
 
-**Attention**: This document corresponds to Fable 0.6.x and needs to be updated to the latest version. Please check the [migration guide](../blog/Introducing-0-7.html).
-
 # Interacting with JavaScript
 
-There are several ways to interact with the JavaScript world:
+Fable is designed to generate standard Javascript and make interaction with external code
+as seamless as possible. However, F# and JS are still have some semantic differences and
+it's important to understand them to prevent unexpected results. You'll learn below what
+these differences are, as well as how to call external JS code from F# either by using
+static typing or dynamic programming.
 
-- [Dynamic programming](#Dynamic-programming)
-- [Foreign interfaces](#Foreign-interfaces)
-- [Special attributes](#Special-attributes)
-- [Calling F# code from JavaScript](#Calling-F-code-from-JavaScript)
-- [JSON serialization](#JSON-serialization)
-- [Publishing a Fable package](#Publishing-a-Fable-package)
+## Methods, curried functions and delegates
+
+Users starting with Fable usually have problems when passing a callback with multiple arguments
+to a JS library. This is because the F# compiler represents function internally in a different
+way depending on where they are declared an how they are used. And we need to understand
+these differences in order to effectively interact with a dynamic language like JS.
+
+First of all, the F# compiler makes a distinction between:
+
+- **Methods**: functions attached to a type or a module.
+- **Function values**: functions passed as arguments or functions declared inside a method.
+
+**Methods** have the same representation in compiled code as in other languages like C# or JS.
+Thanks to this, we can call JS methods from F# and vice versa without problems.
+
+> In F# methods can have curried or tupled arguments, but the internal representation is actually the same.
+
+```fsharp
+module MyModule
+
+type MyType() =
+    // No matter if arguments are curried or tupled,
+    // they have the same representation in JS
+    member this.Foo (x: int, y: int) = ()
+    member this.Bar (x: int) (y: int) = ()
+
+// Module functions are also methods and
+// can have multiple arguments
+let foo (x: int, y: int) = ()
+let bar (x: int) (y: int) = ()
+
+let test() =
+    let o = MyType()
+    o.Foo(1, 2)
+    o.Bar 3 4
+    foo(5, 6)
+    bar 7 8
+```
+
+```js
+class MyType {
+    Foo(x, y) {}
+    Bar(x, y) {}
+}
+
+function foo(x, y) {}
+function bar(x, y) {}
+
+function test() {
+    var o = new MyType();
+    o.Foo(1, 2)
+    o.Bar(3, 4)
+    foo(5, 6)
+    bar(7, 8)
+}
+```
+
+However, things get more interesting with **function values**, because in F# these are always
+**curried**. That is, functions values with more that one argument are actually functions that return
+functions (to allow [partial application](https://fsharpforfunandprofit.com/posts/partial-application/)).
+In JS they are represented as _nested functions_, with **commas representing a single tuple argument**.
+
+> **Attention**: When a method is used as a value, for example, when passed as an argument or
+assigned to a variable, the F# compiler converts it into a curried function. This is necessary
+to keep the language semantics.
+
+```fsharp
+let test() =
+    let f1 x y = x + y
+    // Functions declared inside a method are
+    // the same no matter the syntax used
+    let f2 = fun x y -> x + y
+    // Commas represent a single tuple argument
+    let f3 = fun (x, y) -> x + y
+    let o = MyType()
+    // A method becomes a curried function
+    // when used as a value
+    let f4 = o.Bar
+    f4 1 2
+```
+
+```js
+function test() {
+    var f1 = x => y => x + y;
+    var f2 = x => y => x + y;
+    var f3 = tupledArg => tupledArg[0] + tupledArg[1];
+    var o = new MyType();
+    var f4 = x => y => o.Bar(x, y);
+    f4(1)(2);
+}
+```
+
+> Please note Fable cannot change this behaviour [without compromising F# semantics](https://github.com/fable-compiler/Fable/pull/335).
+
+This means that even if _methods_ have the same representation in F# and JS, _function values_
+are different because in F# they are always curried, while in JS they can have multiple arguments.
+However, it's also possible to represent non-curried function values in F#. In .NET terminology
+these are called **delegates** (like `System.Func` and `System.Action`(. **When passing a callback
+from F# to JS code, it must be converted into a delegate.**
+
+> Note: `System.Func` requires you to specify the generic arguments even if they are only placeholders
+(e.g. `System.Func<_,_,_>`). To avoid this, it's possible to use the type aliases in `Fable.Core` that
+specify the number of arguments with a number (`JsFunc0`, `JsFunc1`...).
+
+```fsharp
+open Fable.Core
+
+let test () =
+    let f1 = fun x y -> x + y
+    // Convert the function value into a delegate
+    let f2 = System.Func<_,_,_>(fun x y -> x + y)
+    // Same as the line above using a type alias
+    let f3 = JsFunc2(fun x y -> x + y)
+    ()
+```
+
+```js
+function test() {
+    var f1 = x => y => x + y;
+    var f2 = (x, y) => x + y;
+    var f3 = (x, y) => x + y;
+}
+```
+
+Fable will automatically convert F# functions to delegates:
+
+- When passing a curried function to a type method accepting a delegate.
+- When using dynamic programming, with `?`, `$`, `createObj` or `createNew`.
+- When passing functions as arguments to `EmitAttribute`.
+
+> Note: If you experience problems make the conversion explicit as indicated above.
+
+```fsharp
+type ITest =
+    abstract setCallback: System.Func<int,int,int> -> unit
+
+let test(o: ITest) =
+    o.setCallback(fun x y -> x + y)
+
+    o?foo(fun x y -> x - y) |> ignore
+    o?bar <- fun x y -> x / y
+
+    createObj [
+        "bar" ==> fun x y z -> x * y * z
+    ]
+```
+
+```js
+function test(o) {
+  o.setCallback((x, y) => x + y);
+
+  o.foo((x, y) => x - y);
+  o.bar = (x, y) => x / y;
+
+  return {
+    bar: function bar(x, y, z) {
+      return x * y * z;
+    },
+  };
+}
+```
+
+## Importing external code
+
+In order to use code from a JS library, we need first to _import_ it. Fable uses [ES2015 semantics](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/import)
+to import individual named or default members, as well as the whole library. There are two ways to express
+a JS import in F# code:
+
+- Using the `ImportAttribute`
+- Using the `import` expressions
+
+> You can use the `--module` compiler argument to change the ES2015 import/export statements to another
+module system, like commonjs, in the final JS code.
+
+### Import attribute
+
+It's usually recommended to use the `ImportAttribute` to import methods and `import` expressions
+for values or objects, but any of them can be used for either purpose. The `ImportAttribute` is
+similar to Foreign Function Interface (FFI) declarations, and they also resemble [ES2015 imports](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/import)
+as we specify first the name of the member and then the path of the imported script.
+
+> When importing a default member or the whole library, use `default` or `*` respectively as the first argument.
+
+> The body of methods with `ImportAttribute` will be ignored by Fable, so in this case we usually use
+the `jsNative` placeholder.
+
+```fsharp
+open Fable.Core
+
+[<Import("foo", from="my-module")>]
+let foo(x: int, y: int): int = jsNative
+
+// Importing a default member
+[<Import("default", from="another-module/myScript.js")>]
+let bar(s: string): unit = jsNative
+
+// Importing the whole library
+[<Import("*", from="./my/relative/path")>]
+let myLib: obj = jsNative
+```
+
+```js
+import { foo } from "my-module";
+import bar from "another-module/myScript.js";
+import * as myLib from "./my/relative/path";
+```
+
+As you can see from the samples, the import path (second argument of the attribute) is kept as is
+in the final JS code so you must always use forward slashes, even in Windows, and follow the import
+rules of your target environment. For example, for [require.js](http://requirejs.org/) you must omit
+the `.js` extension and in [node.js](https://nodejs.org) absolute paths are redirected to the `node_modules`
+folder. Also see below about relative import paths.
+
+### Global attribute
+
+If the method or value is globally accessible in JavaScript, use `GlobalAttribute` instead.
+
+```fsharp
+open Fable.Core
+
+[<Global("$")>]
+let jQuery(s: string): object = jsNative
+
+// If the argument is omitted, the name
+// of the decorated value is used instead
+[<Global>]
+let parseInt(s: string): int = jsNative
+
+let test() =
+    jQuery("#my-id") |> ignore
+    parseInt("35")
+```
+
+```js
+function test() {
+    $("#my-id");
+    return parseInt("35");
+}
+```
+
+### Import expressions
+
+TODO: import expressions and `JsFunc`/`JsConstructor`
+
+`Fable.Core.JsInterop` also contains import expressions. These are mostly
+useful when you need to import JS libraries without a foreign interface.
+
+```fsharp
+open Fable.Core.JsInterop
+
+let buttons = importAll<obj> "material-ui/buttons"
+// import * as buttons from "material-ui/buttons"
+
+let deepOrange500 = importMember<string> "material-ui/styles/colors"
+// import { deepOrange500 } from "material-ui/styles/colors"
+
+let getMuiTheme = importDefault<obj->obj> "material-ui/styles/getMuiTheme"
+// import getMuiTheme from "material-ui/styles/getMuiTheme"
+```
+
+> Note that Fable automatically uses the name of the let-bound variable
+in the second example, this means you must always immediately assign the
+result of `importMember` to a named value.
+
+
+### Imports with relative paths
+
+TODO: relative paths and `--includeJs`
+
+> When importing a relative path (starting with `.` as in `./js/myLib.js`),
+the path will be resolved so it can be reached from `outDir` in the compiled JS code.
+
 
 ## Dynamic programming
 
@@ -171,58 +439,6 @@ validated somehow. However, it's not advised to abuse this method, as the
 code in the template will remain obscure to Fable and may prevent some
 optimizations.
 
-### Import attribute
-
-The `Import` attribute can be applied to modules, types and even functions.
-It will translate to [ES2015 import statements](https://developer.mozilla.org/en/docs/web/javascript/reference/statements/import),
-which can be later transformed to `commonjs`, `amd` or `umd` imports by Babel.
-
-```fsharp
-// Namespace imports
-[<Import("*", from="my-module")>]
-// import * from "my-module"
-
-// Member imports
-[<Import("myFunction", from="my-module")>]
-// import { myFunction } from "my-module"
-
-// Default imports
-[<Import("default", from="express")>]
-// import express from "express"
-```
-
-> If the module or value is globally accessible in JavaScript,
-you can use the `Global` attribute without parameters instead.
-
-> When importing a relative path (starting with `.` as in `./js/myLib.js`),
-the path will be resolved so it can be reached from `outDir` in the compiled JS code.
-
-`Fable.Core.JsInterop` also contains import expressions. These are mostly
-useful when you need to import JS libraries without a foreign interface.
-
-```fsharp
-open Fable.Core.JsInterop
-
-let buttons = importAll<obj> "material-ui/buttons"
-// import * as buttons from "material-ui/buttons"
-
-let deepOrange500 = importMember<string> "material-ui/styles/colors"
-// import { deepOrange500 } from "material-ui/styles/colors"
-
-let getMuiTheme = importDefault<obj->obj> "material-ui/styles/getMuiTheme"
-// import getMuiTheme from "material-ui/styles/getMuiTheme"
-```
-
-> Note that Fable automatically uses the name of the let-bound variable
-in the second example, this means you must always immediately assign the
-result of `importMember` to a named value.
-
-> A difference between import attributes and expressions is the former are
-not resolved in the file where they're declared (as this can be erased
-bindings) but in the file where thery're used. While import expressions are
-always resolved where they're declared. But if you don't understand this,
-don't worry too much, this is usually transparent to the user :)
-
 ### Erase attribute
 
 In TypeScript there's a concept of [Union Types](https://www.typescriptlang.org/docs/handbook/advanced-types.html#union-types)
@@ -358,95 +574,13 @@ let niceBorder = [ Border "1px solid blue" ]
 let style = [ Display "inline-block" ] ++ niceBorder
 ```
 
-## Calling F# code from JavaScript
+### Pojo attribute
 
-When interacting with JavaScript libraries, it's usual to send callbacks
-that will be called from JS code. For this to work properly with F# functions
-you must take a few things into consideration:
-
-- In F# **commas are always used for tuples**:
-
-```fsharp
-fun (x, y) -> x + y
-// JS: function (tupledArg) { return tupledArg[0] + tupledArg[1]; }
-```
-
-- In F# **function arguments are always curried**, so lambdas with multiple
-  arguments translate to single-argument functions returning another function.
-  To make it a multi-argument function in JS, you must **convert it to a delegate**
-  (like `System.Func<_,_,_>`):
-
-```fsharp
-fun x y -> x + y
-// JS: function (x) { return function (y) { return x + y; } }
-
-System.Func<_,_,_>(fun x y -> x + y)
-// JS: function (x, y) { return x + y; }
-```
-
-- Fable will **automatically convert F# functions to delegates** in some situations:
-    - When passing an F# lambda to a method accepting a delegate.
-    - When passing functions as arguments to `EmitAttribute`.
-    - When using dynamic programming, with `?`, `$`, `createObj` or `createNew`.
-
-> Note: If you experience problems make the conversion explicit.
-
-
-
-```fsharp
-type ITest =
-    abstract setCallback: Func<int,int,int> -> unit
-
-let test(o: ITest) =
-    o.setCallback(fun x y -> x + y)
-
-// function test(o) {
-//   o.setCallback(function (x, y) {
-//     return x + y;
-//   });
-// }
-```
-
-```fsharp
-let myMeth x y = x + y
-
-let test(o: obj) =
-    o?foo(fun x y -> x + y) |> ignore
-    o?bar <- fun x y -> x + y
-
-    // Direct application with ($) operator
-    o $ (fun x y -> x * y) |> ignore
-
-    createObj [
-        "bar" ==> fun x y z -> x * y * z
-        "bar2" ==> myMeth
-    ]
-
-// function test(o) {
-//   o.foo(function (x, y) {
-//     return x + y;
-//   });
-
-//   o.bar = function (x, y) {
-//     return x + y;
-//   };
-
-//   o(function (x, y) {
-//     return x * y;
-//   });
-
-//   return {
-//     bar: function bar(x, y, z) {
-//       return x * y * z;
-//     },
-//     bar2: function bar2(x, y) {
-//       return myMeth(x, y);
-//     }
-//   };
-// }
-```
+TODO
 
 ## JSON serialization
+
+TODO: http://fable.io/blog/Introducing-0-7.html#JSON-Serialization
 
 It's possible to use `JSON.stringify` and `JSON.parse` to serialize objects back
 and forth, particularly with record and union types. Records will serialize as plain
@@ -510,45 +644,3 @@ Caveats:
 - Json.NET doesn't serialize type info for F# unions even when using the `TypeNameHandling.All` setting,
   but you can use the following converter:
 
-```fsharp
-open FSharp.Reflection
-open Newtonsoft.Json
-open Newtonsoft.Json.Linq
-
-type UnionTypeInfoConverter() =
-    inherit JsonConverter()
-    override x.CanConvert t = FSharpType.IsUnion t
-    override x.ReadJson(reader, t, _, serializer) =
-        let token = JObject()
-        for prop in JToken.ReadFrom(reader).Children<JProperty>() do
-            if prop.Name <> "$type" then
-                token.Add(prop)
-        token.ToObject(t)
-    override x.WriteJson(writer, v, serializer) =
-        let t = v.GetType()
-        let typeFulName = t.FullName.Substring(0, t.FullName.LastIndexOf("+"))
-        let uci, fields = FSharpValue.GetUnionFields(v, t)
-        writer.WriteStartObject()
-        writer.WritePropertyName("$type")
-        writer.WriteValue(typeFulName)
-        writer.WritePropertyName("Case")
-        writer.WriteValue(uci.Name)
-        writer.WritePropertyName("Fields")
-        writer.WriteStartArray()
-        for field in fields do writer.WriteValue(field)
-        writer.WriteEndArray()
-        writer.WriteEndObject()
-
-let settings =
-    JsonSerializerSettings(
-        Converters = [|UnionTypeInfoConverter()|],
-        TypeNameHandling = TypeNameHandling.All)
-
-type U = A of int | B of string * float
-JsonConvert.SerializeObject(A 4, settings)
-JsonConvert.SerializeObject(B("hi",5.6), settings)
-```
-
-## Publishing a Fable package
-
-See [fable-helpers-sample](https://www.npmjs.com/package/fable-helpers-sample) to know how to publish a Fable package.

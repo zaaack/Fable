@@ -12,7 +12,8 @@ type EraseAttribute() =
     inherit Attribute()
 
 /// The module, type, function... is globally accessible in JS.
-/// More info: http://fable.io/docs/interacting.html#Import-attribute
+/// If the name argument is omitted, the name of the decorated valued will be used.
+/// More info: http://fable.io/docs/interacting.html#Global-attribute
 type GlobalAttribute() =
     inherit Attribute()
     new (name: string) = GlobalAttribute()
@@ -25,7 +26,7 @@ type ImportAttribute(selector: string, from: string) =
     inherit Attribute()
 
 /// Function calls will be replaced by inlined JS code.
-/// More info: http://fable.io/docs/interacting.html#Import-attribute
+/// More info: http://fable.io/docs/interacting.html#Emit-attribute
 type EmitAttribute private () =
     inherit Attribute()
     new (macro: string) = EmitAttribute()
