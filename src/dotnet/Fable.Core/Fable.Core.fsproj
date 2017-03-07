@@ -6,6 +6,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="FSharp.NET.Sdk" Version="1.0.*" PrivateAssets="All" />
+    <PackageReference Include="FSharp.Core" Version="4.1.*" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Compiler.fs" />
     <Compile Include="Util.fs" />
@@ -15,19 +20,9 @@
     <Compile Include="AST/AST.Fable.Util.fs" />
     <Compile Include="AST/AST.Babel.fs" />
     <Compile Include="Plugins.fs" />
-  </ItemGroup>
-
-  <ItemGroup Condition="$(DefineConstants.Contains('IMPORT'))">
     <Compile Include="Import/Fable.Import.JS.fs" />
     <Compile Include="Import/Fable.Import.Browser.fs" />
     <Compile Include="Import/Fable.Import.Node.fs" />
     <Compile Include="Fable.Core.Extensions.fs" />
   </ItemGroup>
-
-  <ItemGroup>
-    <DotNetCliToolReference Include="dotnet-compile-fsc" Version="1.0.0-preview2-*" />
-    <PackageReference Include="FSharp.Core" Version="4.1.*" />
-    <PackageReference Include="FSharp.NET.Sdk" Version="1.0.0-beta-060000" PrivateAssets="All" />
-  </ItemGroup>
-
 </Project>
