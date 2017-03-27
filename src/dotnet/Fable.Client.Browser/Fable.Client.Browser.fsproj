@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../../../FSharp.Compiler.Service_fable/src/fsharp/fcs-fable/fcs-fable.fsproj" />
+    <ProjectReference Include="../../../fcs/fsharp/fcs-fable/fcs-fable.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
