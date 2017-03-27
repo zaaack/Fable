@@ -34,7 +34,7 @@ let makeProjectOptions project sources otherOptions =
 let getProjectOptionsFromScript (checker: FSharpChecker) (define: string[]) scriptFile =
     let otherFlags = [|
         yield "--target:library"
-#if !NETFX
+#if !NETFX && !NO_PRINT_FORMAT
         yield "--targetprofile:netcore"
 #endif
         for constant in define do yield "--define:" + constant
@@ -81,7 +81,7 @@ let getBasicCompilerArgs (define: string[]) optimize =
         yield "--fullpaths"
         yield "--flaterrors"
         yield "--target:library"
-#if NETFX
+#if NETFX || NO_PRINT_FORMAT
         yield "-r:" + resolve "System"
         yield "-r:" + resolve "System.Core"
         yield "-r:" + resolve "System.Numerics"

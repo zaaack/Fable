@@ -38,11 +38,12 @@ module Util =
     let join pathParts =
         Path.Combine(Array.ofSeq pathParts)
 
-    let run workingDir fileName args =
+    let run workingDir (fileName: string) args =
         printfn "CWD: %s" workingDir
         let fileName, args =
-            if EnvironmentHelper.isUnix
-            then fileName, args else "cmd", ("/C " + fileName + " " + args)
+            if not EnvironmentHelper.isUnix && not(fileName.EndsWith(".exe"))
+            then "cmd", ("/C " + fileName + " " + args)
+            else fileName, args
         let ok =
             execProcess (fun info ->
                 info.FileName <- fileName
@@ -305,14 +306,23 @@ let nugetRestore baseDir () =
     Util.run (baseDir </> "Fable.Compiler") dotnetExePath "restore"
     Util.run (baseDir </> "Fable.Tools") dotnetExePath "restore"
 
-let buildTools baseDir isRelease () =
-    sprintf "publish -o ../../../%s -c %s -v n"
-        toolsBuildDir (if isRelease then "Release" else "Debug")
+let buildToolsWithArgs baseDir msbuildArgs isRelease () =
+    sprintf "publish -o ../../../%s -c %s -v n %s"
+        toolsBuildDir (if isRelease then "Release" else "Debug") msbuildArgs
     |> Util.run (baseDir </> "Fable.Tools") dotnetExePath
 
     // Put FSharp.Core.optdata/sigdata next to FSharp.Core.dll
-    FileUtils.cp (toolsBuildDir + "/runtimes/any/native/FSharp.Core.optdata") toolsBuildDir
-    FileUtils.cp (toolsBuildDir + "/runtimes/any/native/FSharp.Core.sigdata") toolsBuildDir
+    match baseDir with
+    | "src/dotnet" ->
+        FileUtils.cp (toolsBuildDir + "/runtimes/any/native/FSharp.Core.optdata") toolsBuildDir
+        FileUtils.cp (toolsBuildDir + "/runtimes/any/native/FSharp.Core.sigdata") toolsBuildDir
+    | "src/netfx" ->
+        FileUtils.cp "packages/FSharp.Core/lib/net45/FSharp.Core.optdata" toolsBuildDir
+        FileUtils.cp "packages/FSharp.Core/lib/net45/FSharp.Core.sigdata" toolsBuildDir
+    | _ -> ()
+
+let buildTools baseDir isRelease () =
+    buildToolsWithArgs baseDir "" isRelease ()
 
 let buildCoreJs () =
     Npm.install __SOURCE_DIRECTORY__ []
@@ -547,32 +557,22 @@ Target "All" (fun () ->
     runTestsDotnet ()
 )
 
-Target "BuildRelease_4.1.0" (fun () ->
+Target "ReproSO" (fun () ->
+    installDotnetSdk ()
     clean ()
-    nugetRestore "src/dotnet" ()
-    buildTools "src/dotnet" true ()
+    nugetRestore "src/netfx" ()
+    buildTools "src/netfx" false ()
     buildCoreJs ()
+    Util.run "src/dotnet/Fable.Client.Browser/demo" "build/fable/dotnet-fable.exe" "npm-run build"
 )
 
-Target "BuildDebug_4.1.0" (fun () ->
-    clean ()
-    nugetRestore "src/dotnet" ()
-    buildTools "src/dotnet" false ()
+Target "ReproSONoPrintFormat" (fun () ->
+    // installDotnetSdk ()
+    // clean ()
+    // nugetRestore "src/netfx" ()
+    buildToolsWithArgs "src/netfx" "/p:DefineConstants=NO_PRINT_FORMAT" false ()
     buildCoreJs ()
-)
-
-Target "BuildRelease_4.1.1" (fun () ->
-    clean ()
-    nugetRestore "src/dotnet4.1.1" ()
-    buildTools "src/dotnet4.1.1" true ()
-    buildCoreJs ()
-)
-
-Target "BuildDebug_4.1.1" (fun () ->
-    clean ()
-    nugetRestore "src/dotnet4.1.1" ()
-    buildTools "src/dotnet4.1.1" false ()
-    buildCoreJs ()
+    Util.run "src/dotnet/Fable.Client.Browser/demo" "build/fable/dotnet-fable.exe" "npm-run build"
 )
 
 // For these target to work, you need the following:

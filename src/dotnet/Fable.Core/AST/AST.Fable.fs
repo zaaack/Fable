@@ -27,6 +27,9 @@ type Type =
     | Enum of fullName: string
     | DeclaredType of Entity * genericArgs: Type list
     member x.FullName =
+        #if NO_PRINT_FORMAT
+        "Type"
+        #else
         match x with
         | Number numberKind -> sprintf "%A" x
         | Enum fullName -> fullName
@@ -35,6 +38,7 @@ type Type =
             "(" + (argTypes |> Seq.map (fun x -> x.FullName) |> String.concat ", ") + ")=>" + returnType.FullName
         | DeclaredType(ent,_) -> ent.FullName
         | _ -> sprintf "%A" x
+        #endif
     member x.GenericArgs =
         match x with
         | Array genArg -> [genArg]
@@ -108,7 +112,12 @@ and Entity(kind: Lazy<_>, file, fullName, members: Lazy<Member list>,
     static member CreateRootModule fileName =
         Entity (lazy Module, Some fileName, "", lazy [], [], [], [], true)
 
-    override x.ToString() = sprintf "%s %A" x.Name x.Kind
+    override x.ToString() =
+        #if NO_PRINT_FORMAT
+        x.Name
+        #else
+        sprintf "%s %A" x.Name x.Kind
+        #endif
 
 and Declaration =
     | ActionDeclaration of Expr * SourceLocation option
@@ -155,7 +164,12 @@ and Member(name, kind, loc, argTypes, returnType, ?originalType, ?genParams, ?de
         | None -> name
     member x.TryGetDecorator decorator =
         x.Decorators |> List.tryFind (fun x -> x.Name = decorator)
-    override x.ToString() = sprintf "%A %s" kind name
+    override x.ToString() =
+        #if NO_PRINT_FORMAT
+        name
+        #else
+        sprintf "%A %s" kind name
+        #endif
 
 and ExternalEntity =
     | ImportModule of fullName: string * moduleName: string * isNs: bool

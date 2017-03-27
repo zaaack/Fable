@@ -46,7 +46,7 @@ let rec private loop timeout (server: TcpListener) (buffer: byte[]) (onMessage: 
                 onMessage(data, fun (reply: string) ->
                     let msg = Encoding.UTF8.GetBytes(reply)
                     stream.Write(msg, 0, msg.Length)
-                    #if NETFX
+                    #if NETFX || NO_PRINT_FORMAT
                     client.Close()
                     #else
                     client.Dispose()

@@ -13,7 +13,7 @@ open Fable
 open Fable.AST
 open Fable.AST.Fable.Util
 
-#if !NETFX && !FABLE_COMPILER
+#if !NETFX && !NO_PRINT_FORMAT && !FABLE_COMPILER
 [<AutoOpen>]
 module ReflectionAdapters =
     type System.Reflection.Assembly with

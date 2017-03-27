@@ -11,6 +11,7 @@
     <ProjectReference Include="../Fable.Compiler/Fable.Compiler.fsproj" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="../../dotnet/Fable.Tools/Constants.fs" />
     <Compile Include="../../dotnet/Fable.Tools/ProjectCracker.fs" />
     <Compile Include="../../dotnet/Fable.Tools/Printers.fs" />
     <Compile Include="../../dotnet/Fable.Tools/Parser.fs" />
