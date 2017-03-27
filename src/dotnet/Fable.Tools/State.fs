@@ -41,7 +41,7 @@ type State(projectOptions: FSharpProjectOptions, checkedProject: FSharpCheckProj
             inlineExprs.GetOrAdd(fullName, fun _ -> generate())
 
 let loadAssembly path =
-#if NETFX || NO_PRINT_FORMAT
+#if NETFX
     Assembly.LoadFrom(path)
 #else
     let globalLoadContext = System.Runtime.Loader.AssemblyLoadContext.Default

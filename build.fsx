@@ -289,6 +289,7 @@ let installDotnetSdk () =
 
 let clean () =
     !! "src/dotnet/**/bin" ++ "src/dotnet/**/obj/"
+        ++ "src/netfx/**/bin" ++ "src/netfx/**/obj/"
         -- "src/dotnet/Fable.Client.Browser/demo/**"
         -- "src/dotnet/Fable.Client.Browser/testapp/**"
         ++ "build/fable-core" ++ "build/json-converter"
@@ -567,10 +568,10 @@ Target "ReproSO" (fun () ->
 )
 
 Target "ReproSONoPrintFormat" (fun () ->
-    // installDotnetSdk ()
-    // clean ()
-    // nugetRestore "src/netfx" ()
-    buildToolsWithArgs "src/netfx" "/p:DefineConstants=NO_PRINT_FORMAT" false ()
+    installDotnetSdk ()
+    clean ()
+    nugetRestore "src/netfx" ()
+    buildToolsWithArgs "src/netfx" "\"/p:OtherFlags=-d:NETFX -d:NO_PRINT_FORMAT\"" false ()
     buildCoreJs ()
     Util.run "src/dotnet/Fable.Client.Browser/demo" "build/fable/dotnet-fable.exe" "npm-run build"
 )

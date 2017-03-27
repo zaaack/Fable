@@ -11,7 +11,7 @@ open State
 let startProcess workingDir fileName args =
     let fileName, args =
         let isWindows =
-            #if NETFX || NO_PRINT_FORMAT
+            #if NETFX
             true
             #else
             RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
