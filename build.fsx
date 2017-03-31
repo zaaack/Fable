@@ -558,11 +558,20 @@ Target "All" (fun () ->
     runTestsDotnet ()
 )
 
+Target "ReproNoSO" (fun () ->
+    installDotnetSdk ()
+    clean ()
+    nugetRestore "src/dotnet" ()
+    buildTools "src/dotnet" true ()
+    buildCoreJs ()
+    Util.run "src/dotnet/Fable.Client.Browser/demo" dotnetExePath "build/fable/dotnet-fable.dll npm-run build"
+)
+
 Target "ReproSO" (fun () ->
     installDotnetSdk ()
     clean ()
     nugetRestore "src/netfx" ()
-    buildTools "src/netfx" false ()
+    buildTools "src/netfx" true ()
     buildCoreJs ()
     Util.run "src/dotnet/Fable.Client.Browser/demo" "build/fable/dotnet-fable.exe" "npm-run build"
 )
@@ -571,7 +580,7 @@ Target "ReproSONoPrintFormat" (fun () ->
     installDotnetSdk ()
     clean ()
     nugetRestore "src/netfx" ()
-    buildToolsWithArgs "src/netfx" "\"/p:OtherFlags=-d:NETFX -d:NO_PRINT_FORMAT\"" false ()
+    buildToolsWithArgs "src/netfx" "\"/p:OtherFlags=-d:NETFX -d:NO_PRINT_FORMAT\"" true ()
     buildCoreJs ()
     Util.run "src/dotnet/Fable.Client.Browser/demo" "build/fable/dotnet-fable.exe" "npm-run build"
 )
