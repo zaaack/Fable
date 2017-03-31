@@ -559,11 +559,11 @@ Target "All" (fun () ->
 )
 
 Target "ReproNoSO" (fun () ->
-    // installDotnetSdk ()
-    // clean ()
-    // nugetRestore "src/dotnet" ()
-    // buildTools "src/dotnet" true ()
-    // buildCoreJs ()
+    installDotnetSdk ()
+    clean ()
+    nugetRestore "src/dotnet" ()
+    buildTools "src/dotnet" true ()
+    buildCoreJs ()
     Util.run "src/dotnet/Fable.Client.Browser/demo" dotnetExePath "../../../../build/fable/dotnet-fable.dll npm-run build"
 )
 
