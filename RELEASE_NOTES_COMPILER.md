@@ -1,3 +1,8 @@
+### 0.7.51
+
+* Fix #871: Fable start in watch mode
+* Fix #873: Fable don't read fableconfig.json
+
 ### 0.7.50
 
 * Fix #747: Decimal comparison
