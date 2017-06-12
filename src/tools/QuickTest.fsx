@@ -35,8 +35,13 @@ let inline tup2 f1 f2 x =
   let b = f2 x
   (a,b)
 
-let f x =
-    match x with
-    | _ -> (fun _ -> x)
+let mutable m = 0
 
-let test x = tup2 id f x
+let f x =
+    m <- m + x
+    (fun _ -> x)
+
+[<Test>]
+let ``CurriedLambda don't delay side effects unnecessarily``() =
+      let a, b = tup2 id f 5
+      sprintf "%A" m |> equal "5"

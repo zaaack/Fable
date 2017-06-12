@@ -287,9 +287,8 @@ and ValueKind =
                 | returnType -> acc, returnType
             match info.IsDynamicallyCurried, body.Type with
             | true, Function(innerArgs, returnType) ->
-                Function(List.map Ident.getType args, body.Type)
-                // let outerArgs = List.map Ident.getType args
-                // getTotalArgTypes (outerArgs @ innerArgs) returnType |> Function
+                let outerArgs = List.map Ident.getType args
+                getTotalArgTypes (outerArgs @ innerArgs) returnType |> Function
             | _ -> Function(List.map Ident.getType args, body.Type)
     member x.Range: SourceLocation option =
         match x with
