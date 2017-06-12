@@ -30,18 +30,23 @@ let equal expected actual =
 // You'll have to run your test manually, sorry!
 // ``My Test``()
 
-let inline tup2 f1 f2 x =
-  let a = f1 x
-  let b = f2 x
-  (a,b)
-
-let mutable m = 0
-
-let f x =
-    m <- m + x
-    (fun _ -> x)
+let f (x:obj) (y:obj) (z:obj) = (string x) + (string y) + (string z)
 
 [<Test>]
-let ``CurriedLambda don't delay side effects unnecessarily``() =
-      let a, b = tup2 id f 5
-      sprintf "%A" m |> equal "5"
+let ``Mapping from values to functions works``() =
+    let a = [| "a"; "b"; "c" |]
+    let b = [| 1; 2; 3 |]
+    let concaters1 = a |> Array.map (fun x y -> y + x)
+    let concaters2 = a |> Array.map (fun x -> (fun y -> y + x))
+    let concaters3 = a |> Array.map (fun x -> let f = (fun y -> y + x) in f)
+    let concaters4 = a |> Array.map f
+    let concaters5 = b |> Array.mapi f
+    concaters1.[0] "x" |> equal "xa"
+    concaters2.[1] "x" |> equal "xb"
+    concaters3.[2] "x" |> equal "xc"
+    concaters4.[0] "x" "y" |> equal "axy"
+    concaters5.[1] "x" |> equal "12x"
+    let f2 = f
+    a |> Array.mapi f2 |> Array.item 2 <| "x" |> equal "2cx"
+
+``Mapping from values to functions works``()

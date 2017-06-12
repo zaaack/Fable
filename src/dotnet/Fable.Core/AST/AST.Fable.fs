@@ -222,10 +222,9 @@ and Ident(name: string, ?typ: Type) =
     static member getType (i: Ident) = i.Type
     override __.ToString() = name
 
-and LambdaInfo(captureThis: bool, ?isDelegate, ?isDynamicallyCurried) =
+and LambdaInfo(captureThis: bool, ?isDelegate) =
     member __.CaptureThis = captureThis
     member __.IsDelegate = defaultArg isDelegate false
-    member __.IsDynamicallyCurried = defaultArg isDynamicallyCurried false
 
 and ImportKind =
     | CoreLib
@@ -249,6 +248,7 @@ and ValueKind =
     | UnaryOp of UnaryOperator
     | BinaryOp of BinaryOperator
     | LogicalOp of LogicalOperator
+    | CurriedLambda of totalArgs: Type list * lambda: Expr
     | Lambda of args: Ident list * body: Expr * info: LambdaInfo
     | Emit of string
     member x.ImmediateSubExpressions: Expr list =
@@ -264,6 +264,7 @@ and ValueKind =
             | ArrayAlloc e -> [e]
         | TupleConst exprs -> exprs
         | Lambda(_,body,_) -> [body]
+        | CurriedLambda(_,lambda) -> [lambda]
     member x.Type =
         match x with
         | Null -> Any
@@ -281,17 +282,17 @@ and ValueKind =
         | TupleConst exprs -> List.map Expr.getType exprs |> Tuple
         | UnaryOp _ -> Function([Any], Any)
         | BinaryOp _ | LogicalOp _ -> Function([Any; Any], Any)
+        | CurriedLambda(totalArgs, lambda) ->
+            match lambda.Type with
+            | Function(_,returnType) -> Function(totalArgs, returnType)
+            | _ -> Function(totalArgs, Any)
         | Lambda (args, body, info) ->
-            let rec getTotalArgTypes acc = function
-                | Function(args, returnType) -> getTotalArgTypes (acc @ args) returnType
-                | returnType -> acc, returnType
-            match info.IsDynamicallyCurried, body.Type with
-            | true, Function(innerArgs, returnType) ->
-                let outerArgs = List.map Ident.getType args
-                getTotalArgTypes (outerArgs @ innerArgs) returnType |> Function
-            | _ -> Function(List.map Ident.getType args, body.Type)
+            match args with
+            | [] -> Function([Unit], body.Type)
+            | args -> Function(List.map Ident.getType args, body.Type)
     member x.Range: SourceLocation option =
         match x with
+        | CurriedLambda(_, lambda) -> lambda.Range
         | Lambda (_, body, _) -> body.Range
         | _ -> None
 

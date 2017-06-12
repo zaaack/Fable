@@ -28,8 +28,6 @@ module Util =
             | _ -> None
         | _ -> None
 
-    let [<Literal>] runSyncWarning = "Async.RunSynchronously must wrap the whole test"
-
     // Compile tests using Mocha.js BDD interface
     let transformTest (com: IBabelCompiler) ctx
                       (test: Fable.Member, decorator, args, body, range) =
@@ -45,18 +43,9 @@ module Util =
         | [] -> ()
         | [arg: Fable.Ident] when arg.Type = Fable.Unit -> ()
         | _ -> failwithf "Test parameters are not supported (testName = '%s')." test.Name
-        let testArgs, testBody =
-            let (|RunSync|_|) = function
-                | Fable.Sequential([Fable.Throw(Fable.Value(Fable.StringConst warning),_,_); arg],_)
-                    when warning = runSyncWarning -> Some arg
-                | _ -> None
-            match body with
-            | Fable.Apply(Fable.Value(Fable.Lambda(_,RunSync _, _)),[asyncBuilder],Fable.ApplyMeth,_,_)
-            | RunSync asyncBuilder -> buildAsyncTestBody body.Range asyncBuilder
-            | _ -> [], body
         let testBody =
-            let args, body = com.TransformFunction ctx None testArgs testBody
-            Babel.ArrowFunctionExpression (args, body, ?loc=testBody.Range) :> Babel.Expression
+            let args, body' = com.TransformFunction ctx None [] body
+            Babel.ArrowFunctionExpression (args, body', ?loc=body.Range) :> Babel.Expression
         let testName =
             Babel.StringLiteral test.Name :> Babel.Expression
         let testRange =
@@ -137,9 +126,6 @@ type NUnitPlugin() =
             match info.ownerFullName, info.methodName with
             | "NUnit.Framework.Assert", _ -> asserts com info
             | "Microsoft.FSharp.Control.FSharpAsync", "RunSynchronously" ->
-                match info.returnType with
-                | Fable.Unit ->
-                    let warning = Fable.Throw(Fable.Value(Fable.StringConst Util.runSyncWarning), Fable.Unit, None)
-                    AST.Fable.Util.makeSequential info.range [warning; info.args.Head] |> Some
-                | _ -> failwithf "Async.RunSynchronously in tests is only allowed with Async<unit> %O" info.range
+                Fable.Util.CoreLibCall("Async", Some "startAsPromise", false, info.args)
+                |> Fable.Util.makeCall info.range info.returnType |> Some
             | _ -> None

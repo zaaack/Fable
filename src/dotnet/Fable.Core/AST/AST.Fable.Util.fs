@@ -1,4 +1,5 @@
-module Fable.AST.Fable.Util
+module rec Fable.AST.Fable.Util
+
 open Fable
 open Fable.AST
 
@@ -30,13 +31,20 @@ let makeCoreRef modname prop =
 let makeImport (selector: string) (path: string) =
     Value(ImportRef(selector.Trim(), path.Trim(), CustomImport))
 
-let makeBinOp, makeUnOp, makeLogOp, makeEqOp =
-    let makeOp range typ args op =
-        Apply (Value op, args, ApplyMeth, typ, range)
-    (fun range typ args op -> makeOp range typ args (BinaryOp op)),
-    (fun range typ args op -> makeOp range typ args (UnaryOp op)),
-    (fun range args op -> makeOp range Boolean args (LogicalOp op)),
-    (fun range args op -> makeOp range Boolean args (BinaryOp op))
+let private makeOp range typ args op =
+    Apply (Value op, args, ApplyMeth, typ, range)
+
+let makeBinOp range typ args op =
+    makeOp range typ args (BinaryOp op)
+
+let makeUnOp range typ args op =
+    makeOp range typ args (UnaryOp op)
+
+let makeLogOp range args op =
+    makeOp range Boolean args (LogicalOp op)
+
+let makeEqOp range args op =
+    makeOp range Boolean args (BinaryOp op)
 
 let rec makeSequential range statements =
     match statements with
@@ -430,7 +438,7 @@ let argIdentToExpr (id: Ident) =
 // Deal with function arguments with higher arity than expected
 // E.g.: [|"1";"2"|] |> Array.map (fun x y -> x + y)
 // JS: ["1","2"].map($var1 => $var2 => ((x, y) => x + y)($var1, $var2))
-let rec ensureArity com fileName argTypes args =
+let ensureArity (com: ICompiler) range fileName argTypes args =
     let rec needsWrapping = function
         | Function(expected,_), Function(actual,returnType) ->
             let expectedLength = List.length expected
@@ -455,33 +463,33 @@ let rec ensureArity com fileName argTypes args =
                 makeApply com fileName f.Range typ f args
                 |> makeLambdaExpr innerArgs
         elif expectedArgsLength > actualArgsLength then
-            // if Option.isSome f.Range then
-            //     com.AddLog("A function with less arguments than expected has been wrapped. " +
-            //                 "Side effects may be delayed.", Severity.Warning, f.Range.Value, fileName)
+            if Option.isSome f.Range then
+                com.AddLog("A function with less arguments than expected has been wrapped. " +
+                            "Side effects may be delayed.", Severity.Warning, f.Range.Value, fileName)
             let innerArgs = List.take actualArgsLength outerArgs |> List.map argIdentToExpr
             let outerArgs = List.skip actualArgsLength outerArgs |> List.map argIdentToExpr
             let innerApply = makeApply com fileName f.Range (Function(List.map Expr.getType outerArgs,typ)) f innerArgs
             makeApply com fileName f.Range typ innerApply outerArgs
-        else
-            outerArgs |> List.map argIdentToExpr
-            |> makeApply com fileName f.Range typ f
-        |> makeLambdaExpr outerArgs
-    if not(List.sameLength argTypes args) then args else // TODO: Raise warning?
-    List.zip argTypes args
-    |> List.map (fun (argType, arg: Expr) ->
-        match argType, arg with
-        // If the expected type is a generic parameter, we cannot infer the arity
-        // so generate a dynamic curried lambda just in case.
-        | GenericParam _, Value(Lambda(args,body,info)) when not info.IsDelegate && List.isMultiple args ->
-            let info = LambdaInfo(info.CaptureThis, isDynamicallyCurried=true)
-            Value(Lambda(args,body,info))
-        | Function _, Value(Lambda(_,_,info)) when info.IsDynamicallyCurried ->
-            arg
-        | NeedsWrapping (expected, actual, returnType) ->
-            wrap com returnType arg expected actual
-        | _ -> arg)
+        else f
+    if not(List.sameLength argTypes args) then
+        sprintf "Number of arg types (%i) and actual args (%i) don't match" argTypes.Length args.Length
+        |> addWarning com fileName range
+        args
+    else
+        List.zip argTypes args
+        |> List.map (fun (argType, arg: Expr) ->
+            match argType, arg with
+            | _, Value(CurriedLambda _) -> arg
+            // If the expected type is a generic parameter, we cannot infer the arity
+            // so generate a dynamic curried lambda just in case.
+            | GenericParam _, Value(Lambda(lambdaArgs,_,info)) when not info.IsDelegate && List.isMultiple args ->
+                Value(CurriedLambda(List.map Ident.getType lambdaArgs, arg))
+            | NeedsWrapping (expected, actual, returnType) ->
+                wrap com returnType arg expected actual
+                // Value(CurriedLambda(arg))
+            | _ -> arg)
 
-and makeApply com fileName range typ callee (args: Expr list) =
+let makeApply com fileName range typ callee (args: Expr list) =
     let callee =
         match callee with
         // If we're applying against a F# let binding, wrap it with a lambda
@@ -489,28 +497,21 @@ and makeApply com fileName range typ callee (args: Expr list) =
             Apply(Value(Lambda([],callee,LambdaInfo(true))), [], ApplyMeth, callee.Type, callee.Range)
         | _ -> callee
     match callee.Type with
-    // Make necessary transformations if we're applying more or less
-    // arguments than the specified function arity
     | Function(argTypes, _) ->
         let argsLength = List.length args
         let argTypesLength = List.length argTypes
-        if argTypesLength < argsLength && argTypesLength >= 1 // TODO: Remove >= 1
-        then
-            let innerArgs = List.take argTypesLength args
-            let outerArgs = List.skip argTypesLength args
-            Apply(callee, ensureArity com fileName argTypes innerArgs, ApplyMeth,
-                    Function(List.map Expr.getType outerArgs, typ), range)
-            |> makeApply com fileName range typ <| outerArgs
-        elif argTypesLength > argsLength && argsLength >= 1 // TODO: Remove >= 1
-        then
-            List.skip argsLength argTypes
-            |> List.map (fun t -> Ident(com.GetUniqueVar(), t))
-            |> fun argTypes2 ->
-                let args2 = argTypes2 |> List.map argIdentToExpr
-                Apply(callee, ensureArity com fileName argTypes (args@args2), ApplyMeth, typ, range)
-                |> makeLambdaExpr argTypes2
+        if argTypesLength < argsLength then
+            let curriedLambda =
+                let args = List.take argTypesLength args |> ensureArity com range fileName argTypes
+                Value(CurriedLambda(argTypes, Apply(callee, args, ApplyMeth, Any, range)))
+            Apply(curriedLambda, List.skip argTypesLength args, ApplyMeth, typ, range)
+        elif argTypesLength > argsLength then
+            let argTypes = List.take argsLength argTypes
+            let args = ensureArity com range fileName argTypes args
+            Apply(Value(CurriedLambda(argTypes, callee)), args, ApplyMeth, typ, range)
         else
-            Apply(callee, ensureArity com fileName argTypes args, ApplyMeth, typ, range)
+            let args = ensureArity com range fileName argTypes args
+            Apply(callee, args, ApplyMeth, typ, range)
     | _ ->
         Apply(callee, args, ApplyMeth, typ, range)
 

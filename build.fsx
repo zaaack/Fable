@@ -575,6 +575,7 @@ Target "FableTools" (fun _ ->
     nugetRestore "src/dotnet" ()
     buildTools "src/dotnet" true ())
 Target "FableCoreJs" buildCoreJs
+Target "NUnitPlugin" buildNUnitPlugin
 Target "RunTestsJs" runTestsJs
 
 Target "PublishPackages" (fun () ->

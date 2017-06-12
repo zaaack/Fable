@@ -61,10 +61,17 @@ let private (|BaseConsCall|_|) com ctx (fsExpr: FSharpExpr) =
     | None -> None
 
 let private transformLambda com ctx args tupleDestructs body isDelegate =
-    let isFunction (expr: Fable.Expr) =
-        match expr.Type with
-        | Fable.Function _ -> true
-        | _ -> false
+    let hasNestedLambda isDelegate (lambda: Fable.Expr) =
+        let rec getTotalArgTypes acc = function
+            | Fable.Function(args, returnType) -> getTotalArgTypes (acc @ args) returnType
+            | returnType -> acc, returnType
+        match isDelegate, lambda.Type with
+        | true, _ -> None
+        // We should also probably check if the nested function is delegate (non-curried) or not,
+        // but then we would have to include that info in the type too not only the expression.
+        | false, Fable.Function(outerArgs, Fable.Function(innerArgs, returnType)) ->
+            getTotalArgTypes (outerArgs @ innerArgs) returnType |> Some
+        | _ -> None
     let ctx, args = makeLambdaArgs com ctx args
     let ctx =
         (ctx, tupleDestructs)
@@ -73,10 +80,11 @@ let private transformLambda com ctx args tupleDestructs body isDelegate =
     let captureThis = ctx.thisAvailability <> ThisUnavailable
     let body = transformExpr com { ctx with isLambdaBody = true } body
     let lambda = Fable.Lambda(args, body, Fable.LambdaInfo(captureThis, isDelegate)) |> Fable.Value
-    if not ctx.isLambdaBody && not isDelegate && isFunction body then
-        let lambdaInfo = Fable.LambdaInfo(captureThis, isDynamicallyCurried=true)
-        Fable.Lambda(args, body, lambdaInfo) |> Fable.Value
-    else lambda
+    match ctx.isLambdaBody, lazy hasNestedLambda isDelegate lambda with
+    | true, _ -> lambda
+    | false, LazyValue None -> lambda
+    | false, LazyValue(Some(totalArgs, returnType)) ->
+        Fable.CurriedLambda(totalArgs, lambda) |> Fable.Value
 
 let private transformNewList com ctx (fsExpr: FSharpExpr) fsType argExprs =
     let rec flattenList (r: SourceLocation) accArgs = function
@@ -140,7 +148,7 @@ let private transformNonListNewUnionCase com ctx (fsExpr: FSharpExpr) fsType uni
                 unionCase.UnionCaseFields
                 |> Seq.map (fun x -> makeType com [] x.FieldType)
                 |> Seq.toList
-            let argExprs = ensureArity com ctx.fileName argTypes argExprs
+            let argExprs = ensureArity com (Some range) ctx.fileName argTypes argExprs
             match argExprs with
             | [] -> [tag]
             | [argExpr] -> [tag; argExpr]
@@ -571,8 +579,8 @@ let private transformExpr (com: IFableCompiler) ctx fsExpr =
             |> addErrorAndReturnNull com ctx.fileName (Some range)
 
     | FlattenedApplication(Transform com ctx callee, typeArgs, args) ->
-        // TODO: Ask why application without aguments happen. So I've seen it for
-        // accessing None or struct values (like the Result type)
+        // TODO: Ask why application without aguments happen. So far I've seen them
+        // for accessing None or struct values (like the Result type)
         if args.Length = 0 then callee else
         let typ, range = makeType com ctx.typeArgs fsExpr.Type, makeRangeFrom fsExpr
         let args = List.map (transformExpr com ctx) args
@@ -725,7 +733,7 @@ let private transformExpr (com: IFableCompiler) ctx fsExpr =
                 | Some tdef ->
                     tdef.FSharpFields
                     |> Seq.map (fun x -> makeType com [] x.FieldType)
-                    |> fun argTypes -> ensureArity com ctx.fileName (Seq.toList argTypes) argExprs
+                    |> fun argTypes -> ensureArity com range ctx.fileName (Seq.toList argTypes) argExprs
                 | None -> argExprs
             let recordType = makeType com ctx.typeArgs fsType
             buildApplyInfo com ctx range recordType recordType recordType.FullName
