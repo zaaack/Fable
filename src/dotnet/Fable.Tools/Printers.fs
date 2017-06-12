@@ -104,13 +104,14 @@ let printFableDecls decls = seq {
         yield sprintf "%A" decl
 }
 
-let printAst outDir (proj: FSharpCheckProjectResults) =
-    for f in proj.AssemblyContents.ImplementationFiles do
-        let target =
-            let name = System.IO.Path.GetFileNameWithoutExtension(f.FileName)
-            Path.Combine(outDir, name + ".fs.ast")
-        Log.logVerbose(sprintf "Print AST %s" target)
-        printFSharpDecls "" f.Declarations
-        |> fun lines -> System.IO.File.WriteAllLines(target, lines)
-        // printFableDecls fableFile.Declarations
-        // |> fun lines -> System.IO.File.WriteAllLines(Path.Combine(outDir, name + ".fable.ast"), lines)
+let printAst (proj: FSharpCheckProjectResults) (fableFile: Fable.File) outDir =
+    proj.AssemblyContents.ImplementationFiles
+    |> Seq.tryFind (fun f -> f.FileName = fableFile.SourcePath)
+    |> Option.iter (fun f ->
+        let name = System.IO.Path.GetFileNameWithoutExtension(f.FileName)
+        let fsDecls = printFSharpDecls "" f.Declarations
+        System.IO.File.WriteAllLines(Path.Combine(outDir, name + ".fs.ast"), fsDecls)
+        // This seems to cause an SO exception
+        // let fableDecls = printFableDecls fableFile.Declarations
+        // System.IO.File.WriteAllLines(Path.Combine(outDir, name + ".fable.ast"), fableDecls)
+    )

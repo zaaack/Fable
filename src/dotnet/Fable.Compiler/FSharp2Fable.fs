@@ -61,17 +61,10 @@ let private (|BaseConsCall|_|) com ctx (fsExpr: FSharpExpr) =
     | None -> None
 
 let private transformLambda com ctx args tupleDestructs body isDelegate =
-    let hasNestedLambda isDelegate (lambda: Fable.Expr) =
-        let rec getTotalArgTypes acc = function
-            | Fable.Function(args, returnType) -> getTotalArgTypes (acc @ args) returnType
-            | returnType -> acc, returnType
-        match isDelegate, lambda.Type with
-        | true, _ -> None
-        // We should also probably check if the nested function is delegate (non-curried) or not,
-        // but then we would have to include that info in the type too not only the expression.
-        | false, Fable.Function(outerArgs, Fable.Function(innerArgs, returnType)) ->
-            getTotalArgTypes (outerArgs @ innerArgs) returnType |> Some
-        | _ -> None
+    let isFunction (expr: Fable.Expr) =
+        match expr.Type with
+        | Fable.Function _ -> true
+        | _ -> false
     let ctx, args = makeLambdaArgs com ctx args
     let ctx =
         (ctx, tupleDestructs)
@@ -80,13 +73,10 @@ let private transformLambda com ctx args tupleDestructs body isDelegate =
     let captureThis = ctx.thisAvailability <> ThisUnavailable
     let body = transformExpr com { ctx with isLambdaBody = true } body
     let lambda = Fable.Lambda(args, body, Fable.LambdaInfo(captureThis, isDelegate)) |> Fable.Value
-    match ctx.isLambdaBody, lazy hasNestedLambda isDelegate lambda with
-    | true, _ -> lambda
-    | false, LazyValue None -> lambda
-    | false, LazyValue(Some(totalArgs, returnType)) ->
-        let args = if captureThis then [lambda; Fable.Value Fable.This] else [lambda]
-        CoreLibCall("CurriedLambda", None, false, args)
-        |> makeCall None (Fable.Function(totalArgs, returnType))
+    if not ctx.isLambdaBody && not isDelegate && isFunction body then
+        let lambdaInfo = Fable.LambdaInfo(captureThis, isDynamicallyCurried=true)
+        Fable.Lambda(args, body, lambdaInfo) |> Fable.Value
+    else lambda
 
 let private transformNewList com ctx (fsExpr: FSharpExpr) fsType argExprs =
     let rec flattenList (r: SourceLocation) accArgs = function
@@ -150,7 +140,7 @@ let private transformNonListNewUnionCase com ctx (fsExpr: FSharpExpr) fsType uni
                 unionCase.UnionCaseFields
                 |> Seq.map (fun x -> makeType com [] x.FieldType)
                 |> Seq.toList
-            let argExprs = ensureArity com argTypes argExprs
+            let argExprs = ensureArity com ctx.fileName argTypes argExprs
             match argExprs with
             | [] -> [tag]
             | [argExpr] -> [tag; argExpr]
@@ -419,7 +409,7 @@ let private transformExpr (com: IFableCompiler) ctx fsExpr =
     // Pipe must come after ErasableLambda
     | Pipe (Transform com ctx callee, args) ->
         let typ, range = makeType com ctx.typeArgs fsExpr.Type, makeRangeFrom fsExpr
-        makeApply com range typ callee (List.map (transformExpr com ctx) args)
+        makeApply com ctx.fileName range typ callee (List.map (transformExpr com ctx) args)
 
     | Composition (expr1, args1, expr2, args2) ->
         let lambdaArg = com.GetUniqueVar() |> makeIdent
@@ -575,7 +565,7 @@ let private transformExpr (com: IFableCompiler) ctx fsExpr =
             let args = List.map (transformExpr com ctx) args
             let resolvedCtx = { ctx with typeArgs = matchGenericParams com ctx var ([], typeArgs) }
             let callee = com.Transform resolvedCtx fsExpr
-            makeApply com (Some range) typ callee args
+            makeApply com ctx.fileName (Some range) typ callee args
         | None ->
             "Cannot resolve locally inlined value: " + var.DisplayName
             |> addErrorAndReturnNull com ctx.fileName (Some range)
@@ -594,7 +584,7 @@ let private transformExpr (com: IFableCompiler) ctx fsExpr =
                 | args -> args
             Fable.Apply(callee, args, Fable.ApplyMeth, typ, range)
         | _ ->
-            makeApply com range typ callee args
+            makeApply com ctx.fileName range typ callee args
 
     | BasicPatterns.IfThenElse (Transform com ctx guardExpr, Transform com ctx thenExpr, Transform com ctx elseExpr) ->
         Fable.IfThenElse (guardExpr, thenExpr, elseExpr, makeRangeFrom fsExpr)
@@ -735,7 +725,7 @@ let private transformExpr (com: IFableCompiler) ctx fsExpr =
                 | Some tdef ->
                     tdef.FSharpFields
                     |> Seq.map (fun x -> makeType com [] x.FieldType)
-                    |> fun argTypes -> ensureArity com (Seq.toList argTypes) argExprs
+                    |> fun argTypes -> ensureArity com ctx.fileName (Seq.toList argTypes) argExprs
                 | None -> argExprs
             let recordType = makeType com ctx.typeArgs fsType
             buildApplyInfo com ctx range recordType recordType recordType.FullName

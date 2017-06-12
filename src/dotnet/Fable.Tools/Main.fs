@@ -126,7 +126,7 @@ let debug (projFile: string) (define: string[]) =
         let state, project = updateState checker com Map.empty msg
         for file in project.ProjectOptions.ProjectFileNames |> Seq.rev do
             let com = Compiler()
-            compile com project file |> printfn "%A"
+            compile com None project file |> printfn "%A"
     with
     | ex -> printfn "ERROR: %s\n%s" ex.Message ex.StackTrace
 

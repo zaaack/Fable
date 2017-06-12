@@ -29,3 +29,14 @@ let equal expected actual =
 
 // You'll have to run your test manually, sorry!
 // ``My Test``()
+
+let inline tup2 f1 f2 x =
+  let a = f1 x
+  let b = f2 x
+  (a,b)
+
+let f x =
+    match x with
+    | _ -> (fun _ -> x)
+
+let test x = tup2 id f x

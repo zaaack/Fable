@@ -401,15 +401,22 @@ module Util =
             :> Expression
         | _ -> e
 
-    let transformLambda r (info: Fable.LambdaInfo) args body: Expression =
-        if info.CaptureThis
-        // Arrow functions capture the enclosing `this` in JS
-        then upcast ArrowFunctionExpression (args, body, ?loc=r)
-        else
-            match body with
-            | U2.Case1 body -> body
-            | U2.Case2 e -> BlockStatement([ReturnStatement(e, ?loc=e.loc)], ?loc=e.loc)
-            |> fun body -> upcast FunctionExpression (args, body, ?loc=r)
+    let transformLambda com ctx r (info: Fable.LambdaInfo) args body: Expression =
+        let lambda: Expression =
+            if info.CaptureThis
+            // Arrow functions capture the enclosing `this` in JS
+            then upcast ArrowFunctionExpression (args, body, ?loc=r)
+            else
+                match body with
+                | U2.Case1 body -> body
+                | U2.Case2 e -> BlockStatement([ReturnStatement(e, ?loc=e.loc)], ?loc=e.loc)
+                |> fun body -> upcast FunctionExpression (args, body, ?loc=r)
+        if info.IsDynamicallyCurried then
+            let args = if info.CaptureThis then [lambda; upcast ThisExpression ()] else [lambda]
+            upcast CallExpression(
+                getCoreLibImport com ctx "CurriedLambda" "default",
+                List.map U2.Case1 args)
+        else lambda
 
     let transformValue (com: IBabelCompiler) (ctx: Context) r = function
         | Fable.ImportRef (memb, path, kind) ->
@@ -428,7 +435,7 @@ module Util =
         | Fable.RegexConst (source, flags) -> upcast RegExpLiteral (source, flags)
         | Fable.Lambda (args, body, info) ->
             com.TransformFunction ctx None args body
-            ||> transformLambda r info
+            ||> transformLambda com ctx r info
         | Fable.ArrayConst (cons, typ) -> buildArray com ctx cons typ
         | Fable.TupleConst vals -> buildArray com ctx (Fable.ArrayValues vals) Fable.Any
         | Fable.Emit emit -> macroExpression None emit []
@@ -657,7 +664,7 @@ module Util =
             let value =
                 let tc = NamedTailCallOpportunity(com, var.Name, args) :> ITailCallOpportunity |> Some
                 com.TransformFunction ctx tc args body
-                ||> transformLambda body.Range info
+                ||> transformLambda com ctx body.Range info
             [varDeclaration expr.Range (ident var) false value :> Statement]
 
         | Fable.VarDeclaration (var, value, isMutable) ->

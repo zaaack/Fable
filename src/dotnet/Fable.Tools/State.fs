@@ -220,10 +220,7 @@ let getExtension (fileName: string) =
 
 let updateState (checker: FSharpChecker) (com: Compiler) (state: State) (msg: Parser.Message): State * Project =
     let createProject options projectFile =
-        let project = createProject checker options com msg projectFile
-        tryGetOption "saveAst" msg.extra |> Option.iter (fun dir ->
-            Printers.printAst dir project.CheckedProject)
-        project
+        createProject checker options com msg projectFile
     let tryFindAndUpdateProject ext sourceFile =
         state |> Map.tryPick (fun _ project ->
             match Map.tryFind sourceFile project.FileInfos with
@@ -264,7 +261,7 @@ let updateState (checker: FSharpChecker) (com: Compiler) (state: State) (msg: Pa
     | ".fsi" -> failwithf "Signature files cannot be compiled to JS: %s" fileName
     | _ -> failwithf "Not an F# source file: %s" fileName
 
-let compile (com: Compiler) (project: Project) (fileName: string) =
+let compile (com: Compiler) (saveAst: string option) (project: Project) (fileName: string) =
     if fileName.EndsWith(".fsproj")
     then
         if com.HasFSharpError
@@ -287,13 +284,11 @@ let compile (com: Compiler) (project: Project) (fileName: string) =
                 | None ->
                     failwith "Cannot find fable-core directory"
             else com
-        let json =
-            FSharp2Fable.Compiler.transformFile com project project.CheckedProject fileName
-            |> Fable2Babel.Compiler.transformFile com project
-            |> addLogs com
-            |> toJson
+        let fableFile = FSharp2Fable.Compiler.transformFile com project project.CheckedProject fileName
+        let babelFile = Fable2Babel.Compiler.transformFile com project fableFile |> addLogs com
         Log.logVerbose("Compiled: " + fileName)
-        json
+        saveAst |> Option.iter (Printers.printAst project.CheckedProject fableFile)
+        toJson babelFile
 
 type Command = string * (string -> unit)
 
@@ -306,7 +301,8 @@ let startAgent () = MailboxProcessor<Command>.Start(fun agent ->
             let state, activeProject = updateState checker com state msg
             async {
                 try
-                    compile com activeProject msg.path |> replyChannel
+                    let saveAst = tryGetOption "saveAst" msg.extra
+                    compile com saveAst activeProject msg.path |> replyChannel
                 with ex ->
                     sendError replyChannel ex
             } |> Async.Start

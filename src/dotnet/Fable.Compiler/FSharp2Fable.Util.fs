@@ -1339,7 +1339,7 @@ module Util =
         validateGenArgs com ctx r meth.GenericParameters methTypArgs
         let methArgTypes = getArgTypes com meth.CurriedParameterGroups
         let args =
-            let args = ensureArity com methArgTypes args
+            let args = ensureArity com ctx.fileName methArgTypes args
             if hasRestParams meth then
                 let args = List.rev args
                 match args.Head with

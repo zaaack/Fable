@@ -655,10 +655,10 @@ module AstPass =
                 then "awaitPromise" else "startAsPromise"
             CoreLibCall("Async", Some meth, false, i.args)
             |> makeCall i.range i.returnType |> Some
-        | "ofJsonAsType" ->            
+        | "ofJsonAsType" ->
             match i.args with
             | [arg; typ] -> fableCoreLib com { i with methodName = "ofJson"; args = [arg; makeJsObject None ["T", typ]] }
-            | _ -> failwithf "Unexpected number of arguments for %s" i.methodName            
+            | _ -> failwithf "Unexpected number of arguments for %s" i.methodName
         | "toJson" | "ofJson" | "deflate" | "inflate" | "toPlainJsObj"
         | "toJsonWithTypeInfo" | "ofJsonWithTypeInfo" ->
             let modName = if i.methodName = "toPlainJsObj" then "Util" else "Serialize"
@@ -708,12 +708,12 @@ module AstPass =
     let fsFormat com (i: Fable.ApplyInfo) =
         let emit macro =
             let emit = Fable.Emit macro |> Fable.Value
-            let formatFn = makeGet None i.returnType i.args.Head (makeStrConst "formatFn") 
+            let formatFn = makeGet None i.returnType i.args.Head (makeStrConst "formatFn")
             Fable.Apply(formatFn, [emit], Fable.ApplyMeth, i.returnType, i.range)
             |> Some
         match i.methodName with
-        | "value" -> 
-            makeGet None i.returnType i.callee.Value (makeStrConst "input") 
+        | "value" ->
+            makeGet None i.returnType i.callee.Value (makeStrConst "input")
             |> Some
         | "printFormatToString" -> emit "x=>x"
         | "printFormatToStringThen" ->
@@ -730,10 +730,10 @@ module AstPass =
         | "printFormatToStringThenFail" ->
             emit "x=>{throw new Error(x)}"
         | ".ctor" ->
-            let callResultFunc = 
+            let callResultFunc =
                 CoreLibCall("String", Some "fsFormat", false, i.args)
                 |> makeCall i.range i.returnType
-            makeJsObject i.range 
+            makeJsObject i.range
                 [ "formatFn", callResultFunc
                   "input", i.args.Head  ]
             |> Some
@@ -819,9 +819,9 @@ module AstPass =
             |> Option.map (fun (f1, f2) ->
                 let tempVar = com.GetUniqueVar() |> makeIdent
                 [Fable.IdentValue tempVar |> Fable.Value]
-                |> makeApply com info.range Fable.Any f1
+                |> makeApply com info.fileName info.range Fable.Any f1
                 |> List.singleton
-                |> makeApply com info.range Fable.Any f2
+                |> makeApply com info.fileName info.range Fable.Any f2
                 |> makeLambdaExpr [tempVar])
         // Reference
         | "op_Dereference" -> makeGet r info.returnType args.Head (makeStrConst "contents") |> Some

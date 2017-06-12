@@ -26,6 +26,7 @@ type Type =
     | GenericParam of name: string
     | Enum of fullName: string
     | DeclaredType of Entity * genericArgs: Type list
+    /// Attention: Calling this seems to cause Stack Overflow exceptions sometimes
     member x.FullName =
         match x with
         | Number numberKind -> sprintf "%A" x
@@ -221,9 +222,10 @@ and Ident(name: string, ?typ: Type) =
     static member getType (i: Ident) = i.Type
     override __.ToString() = name
 
-and LambdaInfo(captureThis: bool, ?isDelegate: bool) =
+and LambdaInfo(captureThis: bool, ?isDelegate, ?isDynamicallyCurried) =
     member __.CaptureThis = captureThis
     member __.IsDelegate = defaultArg isDelegate false
+    member __.IsDynamicallyCurried = defaultArg isDynamicallyCurried false
 
 and ImportKind =
     | CoreLib
@@ -279,7 +281,16 @@ and ValueKind =
         | TupleConst exprs -> List.map Expr.getType exprs |> Tuple
         | UnaryOp _ -> Function([Any], Any)
         | BinaryOp _ | LogicalOp _ -> Function([Any; Any], Any)
-        | Lambda (args, body, _) -> Function(List.map Ident.getType args, body.Type)
+        | Lambda (args, body, info) ->
+            let rec getTotalArgTypes acc = function
+                | Function(args, returnType) -> getTotalArgTypes (acc @ args) returnType
+                | returnType -> acc, returnType
+            match info.IsDynamicallyCurried, body.Type with
+            | true, Function(innerArgs, returnType) ->
+                Function(List.map Ident.getType args, body.Type)
+                // let outerArgs = List.map Ident.getType args
+                // getTotalArgTypes (outerArgs @ innerArgs) returnType |> Function
+            | _ -> Function(List.map Ident.getType args, body.Type)
     member x.Range: SourceLocation option =
         match x with
         | Lambda (_, body, _) -> body.Range
