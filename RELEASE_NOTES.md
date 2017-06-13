@@ -1,10 +1,6 @@
-### 1.1.0-rc-002
+### 1.0.11
 
-* Fix #996: Don't wrap dynamic CurriedLambdas
-
-### 1.1.0-rc-001
-
-* Support Paket groups and move Browser and Node bindings out of Fable.Core
+* Fix file recompilation
 
 ### 1.0.8
 
