@@ -233,9 +233,9 @@ let updateState (checker: FSharpChecker) (com: Compiler) (state: State) (msg: Pa
         state |> Map.tryPick (fun _ project ->
             match Map.tryFind sourceFile project.FileInfos with
             | Some fileInfo ->
-                // sprintf "File %s (compiled %b) belongs to project %s"
-                //     (getRelativePath sourceFile) fileInfo.IsCompiled (getRelativePath project.ProjectFile)
-                // |> Log.logVerbose
+                sprintf "File %s (compiled %b) belongs to project %s"
+                    (getRelativePath sourceFile) fileInfo.IsCompiled (getRelativePath project.ProjectFile)
+                |> Log.logVerbose
                 let project =
                     // When a script is modified, restart the project with new options
                     // (to check for new references, loaded projects, etc.)
