@@ -1,3 +1,7 @@
+### 1.0.14
+
+* Fix file recompilation (now for real)
+
 ### 1.0.12
 
 * Fix JS literal objects creation at compile time
