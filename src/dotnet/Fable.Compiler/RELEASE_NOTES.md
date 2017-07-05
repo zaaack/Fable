@@ -1,3 +1,7 @@
+### 1.2.0-alpha-001
+
+* Decouple Fable.Core and Fable.Compiler
+
 ### 1.1.7
 
 * Update FCS dependency

@@ -1,3 +1,7 @@
+### 1.2.0-alpha-001
+
+* Decouple Fable.Core and Fable.Compiler
+
 ### 1.1.6
 
 * Fix #1046: Parse time-only strings
