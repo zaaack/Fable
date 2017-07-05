@@ -474,11 +474,10 @@ let pushNuget (projFile: string) =
             | None -> failwith "The Nuget API key must be set in a NUGET_KEY environmental variable"
         // If necessary, update version in ToolsUtil.fs and build JS files
         if projFile.Contains("Fable.Core.fsproj") then
-            checkDependent versionRegex projFile "src/dotnet/Fable.Compiler/Fable.Compiler.fsproj"
             updateVersionInToolsUtil "CORE_VERSION" releaseNotes.NugetVersion
             buildCoreJS()
-        if projFile.Contains("Fable.Compiler.fsproj") then
-            checkDependent versionRegex projFile "src/dotnet/dotnet-fable/dotnet-fable.fsproj"
+        // if projFile.Contains("Fable.Compiler.fsproj") then
+        //     checkDependent versionRegex projFile "src/dotnet/dotnet-fable/dotnet-fable.fsproj"
         if projFile.Contains("dotnet-fable.fsproj") then
             updateVersionInToolsUtil "VERSION" releaseNotes.NugetVersion
         // Restore dependencies here so they're updated to latest project versions
@@ -614,7 +613,7 @@ Target "All" (fun () ->
 // - In `FSharp.Compiler.Service_fable` run `build CodeGen.NetCore -d:FABLE_COMPILER`
 // > Attention: the generation of libraries metadata is not included in this target
 Target "REPL" (fun () ->
-    let replDir = "src/dotnet/Fable.Client.Browser/demo"
+    let replDir = "src/dotnet/Fable.JS/demo"
     Npm.install replDir []
 
     // Compile fable-core

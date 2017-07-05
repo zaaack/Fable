@@ -37,6 +37,11 @@ let loadPlugins pluginPaths (loadedPlugins: PluginInfo list) =
                     { path = path
                     ; plugin = Activator.CreateInstance x :?> IPlugin })
             with
+            | :? ReflectionTypeLoadException as ex ->
+                ex.LoaderExceptions
+                |> Seq.map (fun e -> e.Message)
+                |> String.concat "\n"
+                |> failwithf "Cannot load plugin %s: %s\n%s" path ex.Message
             | ex -> failwithf "Cannot load plugin %s: %s" path ex.Message)
     |> Seq.toList
 
