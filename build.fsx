@@ -472,12 +472,11 @@ let pushNuget (projFile: string) =
             match environVarOrNone "NUGET_KEY" with
             | Some nugetKey -> nugetKey
             | None -> failwith "The Nuget API key must be set in a NUGET_KEY environmental variable"
-        // If necessary, update version in ToolsUtil.fs and build JS files
-        if projFile.Contains("Fable.Core.fsproj") then
-            updateVersionInToolsUtil "CORE_VERSION" releaseNotes.NugetVersion
-            buildCoreJS()
-        // if projFile.Contains("Fable.Compiler.fsproj") then
+        // if projFile.Contains("Fable.Core.fsproj") then
+        //     updateVersionInToolsUtil "CORE_VERSION" releaseNotes.NugetVersion
+        if projFile.Contains("Fable.Compiler.fsproj") then
         //     checkDependent versionRegex projFile "src/dotnet/dotnet-fable/dotnet-fable.fsproj"
+            buildCoreJS()
         if projFile.Contains("dotnet-fable.fsproj") then
             updateVersionInToolsUtil "VERSION" releaseNotes.NugetVersion
         // Restore dependencies here so they're updated to latest project versions

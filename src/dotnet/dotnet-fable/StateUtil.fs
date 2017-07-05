@@ -100,7 +100,7 @@ let createProject checker (projInfo: ProjectInfo option)
         match projInfo with
         // If we have info from previous project, assume it's a watch compilation
         | Some info -> true, info.FableCoreJsDir
-        | None -> false, ProjectCracker.tryGetFableCoreJsDir projectOptions.ProjectFileName
+        | None -> false, ProjectCracker.getFableCoreJsDir projectOptions.ProjectFileName |> Some
     Project(projectOptions, checkedProject, isWatch, ?fableCoreJsDir=fableCoreJsDir)
 
 let toJson =
